@@ -126,12 +126,19 @@ IMAGE_NAME=git.example.com/team/talos-drift IMAGE_TAG=1.0.0 docker compose build
 ### Image en CVE's
 
 Het runtime-image is `cgr.dev/chainguard/python:latest` (Wolfi): alleen Python en de libraries
-die het nodig heeft, geen shell, geen package manager, geen pip. De Python-dependencies worden in
-een aparte bouwfase (`latest-dev`) in een venv geïnstalleerd en daarna overgezet.
+die het nodig heeft, geen shell, geen package manager, geen pip. Alleen dit image wordt verscheept.
+
+De bouwfases gebruiken Debian-images (`golang:latest`, `python:3.15-slim`): op de CI-runner
+weigert de kernel netwerkverkeer vanuit build-stappen in Wolfi-images (`sendto: EACCES`), terwijl
+Debian-stappen werken. De Python-dependencies worden met `pip --target` in `/srv/site-packages`
+geïnstalleerd. Ze moeten bij dezelfde Python-minorversie horen als het runtime-image; een
+controlestap laat de build falen als Chainguard naar een nieuwe versie gaat (pas dan
+`PYTHON_VERSION` aan, bijv. `--build-arg PYTHON_VERSION=3.16`).
 
 talosctl en lego worden niet als releasebinary gedownload maar **uit broncode gebouwd** met de
-nieuwste Go-toolchain (`cgr.dev/chainguard/go:latest`) en de nieuwste `golang.org/x/crypto` en
-`golang.org/x/net`. De releasebinaries bevatten vaak een oudere Go-stdlib met bekende CVE's.
+nieuwste Go-toolchain en de nieuwste `golang.org/x/crypto` en
+`golang.org/x/net`, in `golang:latest`. De releasebinaries bevatten vaak een oudere Go-stdlib
+met bekende CVE's.
 Bij elke build wordt de nieuwste stabiele release (`vX.Y.Z`) van beide gekozen uit de
 GitHub-releasefeeds, die ook als cache-sleutel dienen (vast zetten kan met `TALOSCTL_VERSION` /
 `LEGO_VERSION`). De broncode komt via de Go-moduleproxy, gecontroleerd tegen `sum.golang.org`;
