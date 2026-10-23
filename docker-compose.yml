@@ -2,10 +2,14 @@ services:
   talos-drift:
     build:
       context: .
+      # Always a multi-arch image; the Dockerfile picks talosctl/lego per TARGETARCH.
+      platforms:
+        - linux/amd64
+        - linux/arm64
       args:
         TALOSCTL_VERSION: ${TALOSCTL_VERSION:-latest}   # newest release; set a tag in .env to pin
         LEGO_VERSION: ${LEGO_VERSION:-latest}
-    image: talos-drift:latest
+    image: ${IMAGE_NAME:-talos-drift}:${IMAGE_TAG:-latest}
     restart: unless-stopped
     ports:
       - "${HTTPS_PORT:-443}:8443"   # the app, HTTPS only

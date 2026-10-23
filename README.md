@@ -103,6 +103,24 @@ in het volume opgeslagen.
 | `SCAN_CONCURRENCY` | `5` | Aantal nodes dat tegelijk gescand wordt |
 | `NODE_TIMEOUT` | `30` | Timeout per talosctl-aanroep in seconden |
 
+### Image: architecturen en tag
+
+Het image wordt altijd gebouwd voor **linux/amd64** en **linux/arm64** (`build.platforms` in
+`docker-compose.yml`); talosctl en lego worden per architectuur gekozen. Naam en tag stel je in
+met `IMAGE_NAME` en `IMAGE_TAG` in `.env` (standaard `talos-drift:latest`).
+
+Je lokale Docker moet beide varianten kunnen opslaan (containerd image store). Op Docker Desktop
+gebruik je daarvoor de eigen builder: zet `BUILDX_BUILDER=desktop-linux` in `.env`. Een
+docker-container-builder bewaart lokaal maar één architectuur. Controleren:
+`docker image ls --tree talos-drift:latest`.
+
+Naar een registry pushen, bijv. die van Gitea:
+
+```bash
+docker login git.example.com
+IMAGE_NAME=git.example.com/team/talos-drift IMAGE_TAG=1.0.0 docker compose build --push
+```
+
 ### talosctl-versie
 
 Bij elke `docker compose build` controleert Docker via de GitHub API wat de nieuwste stabiele
