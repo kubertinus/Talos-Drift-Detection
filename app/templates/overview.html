@@ -1,0 +1,102 @@
+{% extends "base.html" %}
+{% block title %}Overzicht · Talos Drift{% endblock %}
+{% block content %}
+<div class="flex flex-wrap items-baseline justify-between gap-2 mb-6">
+  <h1 class="text-2xl font-semibold text-white">Clusters</h1>
+  <div class="text-sm text-slate-400">{{ cards | length }} cluster{{ 's' if cards | length != 1 }} · {{ totals.nodes }} nodes</div>
+</div>
+
+{% if not cards %}
+<div class="card p-10 text-center">
+  <div class="text-white font-medium">Nog geen clusters</div>
+  <p class="text-sm text-slate-400 mt-1">Voeg je eerste cluster toe onder <a href="/settings?new=1" class="text-orange-300 hover:underline">Instellingen</a>.</p>
+</div>
+{% endif %}
+
+{% if cards %}
+<div class="grid grid-cols-2 md:grid-cols-5 gap-3 mb-10">
+  <div class="card p-4">
+    <div class="text-xs uppercase tracking-wide text-slate-400">Clusters in orde</div>
+    <div class="mt-1 text-3xl font-semibold text-white">{{ totals.healthy_clusters }}<span class="text-lg text-slate-500">/{{ cards | length }}</span></div>
+  </div>
+  <div class="card p-4">
+    <div class="text-xs uppercase tracking-wide text-slate-400">In sync</div>
+    <div class="mt-1 text-3xl font-semibold text-emerald-400">{{ totals.in_sync }}</div>
+  </div>
+  <div class="card p-4">
+    <div class="text-xs uppercase tracking-wide text-slate-400">Drift</div>
+    <div class="mt-1 text-3xl font-semibold text-amber-400">{{ totals.drift }}</div>
+  </div>
+  <div class="card p-4">
+    <div class="text-xs uppercase tracking-wide text-slate-400">Onbereikbaar / fout</div>
+    <div class="mt-1 text-3xl font-semibold text-rose-400">{{ totals.unreachable + totals.patch_error }}</div>
+  </div>
+  <div class="card p-4 col-span-2 md:col-span-1">
+    <div class="text-xs uppercase tracking-wide text-slate-400">Nodes totaal</div>
+    <div class="mt-1 text-3xl font-semibold text-white">{{ totals.nodes }}</div>
+  </div>
+</div>
+{% endif %}
+
+<div class="grid gap-4 lg:grid-cols-2">
+  {% for c in cards %}
+  <a href="/c/{{ c.id }}" class="card cluster-card health-{{ c.health }} p-5 flex flex-col">
+    <div class="flex items-start justify-between gap-3">
+      <div class="min-w-0">
+        <div class="text-lg font-semibold text-white truncate">{{ c.name }}</div>
+        <div class="text-xs text-slate-400 mt-0.5">
+          {% if c.running %}<span class="text-orange-300">bezig met scannen…</span>
+          {% elif c.missing %}nog niet ingesteld
+          {% elif c.scan %}gescand <time class="rel" datetime="{{ c.scan.finished_at }}">{{ c.scan.finished_at }}</time>
+          {% else %}nog niet gescand{% endif %}
+        </div>
+      </div>
+      {% if c.health == 'in-sync' %}<span class="badge badge-ok">in orde</span>
+      {% elif c.health == 'drift' %}<span class="badge badge-warn">drift</span>
+      {% elif c.health == 'error' %}<span class="badge badge-err">fout</span>
+      {% else %}<span class="badge badge-muted">instellen</span>{% endif %}
+    </div>
+
+    {% if c.missing %}
+    <div class="mt-4 text-sm text-slate-400">
+      Nog niet ingesteld: <span class="text-slate-200">{{ c.missing | join(', ') }}</span>.
+    </div>
+    {% elif c.scan and c.scan.error %}
+    <div class="mt-4 text-sm text-rose-300 line-clamp-2" title="{{ c.scan.error }}">{{ c.scan.error }}</div>
+    {% endif %}
+
+    {% if c.nodes %}
+    <div class="mt-4 space-y-3">
+      {% for role, label in [('controlplane', 'Controlplanes'), ('worker', 'Workers')] %}
+      {% set s = c.summary[role] %}
+      {% if s.total %}
+      <div>
+        <div class="flex items-center justify-between text-xs mb-1.5">
+          <span class="text-slate-300">{{ label }} <span class="text-slate-500">· {{ s.total }}</span></span>
+          <span class="text-slate-400">
+            {% if s.in_sync %}<span class="text-emerald-400">{{ s.in_sync }} in sync</span>{% endif %}
+            {% if s.drift %} · <span class="text-amber-400">{{ s.drift }} drift</span>{% endif %}
+            {% if s.unreachable + s.patch_error %} · <span class="text-rose-400">{{ s.unreachable + s.patch_error }} fout</span>{% endif %}
+          </span>
+        </div>
+        <div class="flex flex-wrap gap-1.5">
+          {% for n in c.nodes if n.role == role %}
+          <span class="node-dot dot-{{ n.status }}"
+                title="{{ n.hostname }} · {{ n.status }}{% if n.drift_count %} ({{ n.drift_count }}){% endif %}"></span>
+          {% endfor %}
+        </div>
+      </div>
+      {% endif %}
+      {% endfor %}
+      {% set others = c.nodes | rejectattr('role', 'in', ['controlplane', 'worker']) | list %}
+      {% if others %}
+      <div class="text-xs text-slate-400">{{ others | length }} node(s) met onbekende rol</div>
+      {% endif %}
+    </div>
+    {% endif %}
+
+  </a>
+  {% endfor %}
+
+</div>
+{% endblock %}

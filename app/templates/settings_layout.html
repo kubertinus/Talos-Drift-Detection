@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="grid gap-8 md:grid-cols-[14rem_1fr]">
+  <aside>
+    <div class="text-xs uppercase tracking-wide text-slate-500 mb-2 px-3">Clusters</div>
+    <nav class="flex flex-col gap-0.5 text-sm">
+      {% for c in clusters %}
+      <a href="/settings/{{ c.id }}"
+         class="px-3 py-2 rounded-md truncate {% if cluster and cluster.id == c.id %}bg-slate-800 text-white{% else %}text-slate-300 hover:bg-slate-800/60 hover:text-white{% endif %}">{{ c.name }}</a>
+      {% endfor %}
+      <a href="/settings?new=1"
+         class="mt-2 px-3 py-2 rounded-md flex items-center gap-2 {% if not cluster and not page %}bg-slate-800 text-white{% else %}text-orange-300 hover:bg-slate-800/60{% endif %}">
+        <svg class="w-4 h-4" viewBox="0 0 20 20" fill="currentColor"><path d="M10 4a1 1 0 0 1 1 1v4h4a1 1 0 1 1 0 2h-4v4a1 1 0 1 1-2 0v-4H5a1 1 0 1 1 0-2h4V5a1 1 0 0 1 1-1z"/></svg>
+        Nieuw cluster
+      </a>
+    </nav>
+    <div class="text-xs uppercase tracking-wide text-slate-500 mt-8 mb-2 px-3">Systeem</div>
+    <nav class="flex flex-col gap-0.5 text-sm">
+      <a href="/settings/https"
+         class="px-3 py-2 rounded-md flex items-center gap-2 {% if page == 'https' %}bg-slate-800 text-white{% else %}text-slate-300 hover:bg-slate-800/60 hover:text-white{% endif %}">
+        <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>
+        HTTPS-certificaat
+      </a>
+    </nav>
+  </aside>
+  <div class="min-w-0">
+    {% block settings %}{% endblock %}
+  </div>
+</div>
+{% endblock %}

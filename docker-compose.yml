@@ -1,0 +1,42 @@
+services:
+  talos-drift:
+    build:
+      context: .
+      args:
+        TALOSCTL_VERSION: ${TALOSCTL_VERSION:-latest}   # newest release; set a tag in .env to pin
+        LEGO_VERSION: ${LEGO_VERSION:-latest}
+    image: talos-drift:latest
+    restart: unless-stopped
+    ports:
+      - "${HTTPS_PORT:-443}:8443"   # the app, HTTPS only
+      - "${HTTP_PORT:-80}:8080"     # redirects to HTTPS; Let's Encrypt HTTP-01 needs this on port 80
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      MASTER_KEY_FILE: /run/secrets/master_key
+      ADMIN_PASSWORD_FILE: /run/secrets/admin_password
+      HTTPS_PUBLIC_PORT: ${HTTPS_PORT:-443}
+    secrets:
+      - master_key
+      - admin_password
+    volumes:
+      - talos-drift-data:/data
+      # Host directory (e.g. your home) in which you pick the base folder with talosconfig,
+      # controlplane/worker.yaml and patches in the UI. Read-only; hidden paths are never read.
+      - ${CONFIG_HOST_DIR:-./configs}:/configs:ro
+    tmpfs:
+      - /tmp:size=16m,mode=1777
+    read_only: true
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+
+volumes:
+  talos-drift-data:
+
+secrets:
+  master_key:
+    file: ./secrets/master_key
+  admin_password:
+    file: ./secrets/admin_password

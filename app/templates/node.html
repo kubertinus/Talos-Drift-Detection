@@ -1,0 +1,108 @@
+{% extends "base.html" %}
+{% block title %}{{ node.hostname }} · Talos Drift{% endblock %}
+{% block head %}
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/diff2html@3.4.48/bundles/css/diff2html.min.css">
+<script src="https://cdn.jsdelivr.net/npm/diff2html@3.4.48/bundles/js/diff2html.min.js"></script>
+{% endblock %}
+{% block content %}
+<div class="text-sm text-slate-400"><a href="/" class="hover:text-white">Overzicht</a> <span class="text-slate-600">/</span> <a href="/c/{{ cluster.id }}" class="hover:text-white">{{ cluster.name }}</a> <span class="text-slate-600">/</span></div>
+<div class="mt-3 mb-6 flex flex-wrap items-center gap-3">
+  <h1 class="text-2xl font-semibold text-white">{{ node.hostname }}</h1>
+  <span class="badge badge-muted">{{ node.role }}</span>
+  {% if node.status == 'in-sync' %}<span class="badge badge-ok">in sync</span>
+  {% elif node.status == 'drift' %}<span class="badge badge-warn">drift · {{ node.drift_count }}</span>
+  {% elif node.status == 'unreachable' %}<span class="badge badge-err">onbereikbaar</span>
+  {% elif node.status == 'patch-error' %}<span class="badge badge-err">patchfout</span>
+  {% else %}<span class="badge badge-muted">geen baseline</span>{% endif %}
+  {% if node.outlier %}<span class="badge badge-err">wijkt af van meerderheid</span>{% endif %}
+</div>
+<dl class="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-8 text-sm">
+  <div class="card p-3"><dt class="text-slate-400 text-xs">Adres</dt><dd class="font-mono">{{ node.address }}</dd></div>
+  <div class="card p-3"><dt class="text-slate-400 text-xs">Talos</dt><dd>{{ node.talos_version or '—' }}</dd></div>
+  <div class="card p-3"><dt class="text-slate-400 text-xs">Baseline</dt><dd>{{ 'controlplane.yaml' if node.role == 'controlplane' else 'worker.yaml' }}{% if node.patches %} <span class="text-slate-400" title="{{ node.patches | join(', ') }}">+ {{ node.patches | length }} patch{{ 'es' if node.patches | length != 1 }}</span>{% endif %}</dd></div>
+  <div class="card p-3"><dt class="text-slate-400 text-xs">Gescand</dt><dd><time class="rel" datetime="{{ node.scanned_at }}">{{ node.scanned_at }}</time></dd></div>
+</dl>
+
+{% if node.error %}<div class="alert-error mb-6">{{ node.error }}</div>{% endif %}
+{% if node.patches %}
+<div class="text-xs text-slate-400 mb-6">Baseline opgebouwd uit
+  <span class="font-mono">{{ 'controlplane.yaml' if node.role == 'controlplane' else 'worker.yaml' }}</span>
+  {% for p in node.patches %} &rarr; <span class="font-mono text-slate-300">{{ p }}</span>{% endfor %}
+</div>
+{% endif %}
+{% if node.status == 'no-baseline' %}<div class="alert-warn mb-6">Upload eerst de baseline voor deze rol in Instellingen.</div>{% endif %}
+
+{% if node.changes %}
+<section class="mb-10" x-data="{ filter: 'all' }">
+  <div class="flex items-center justify-between mb-3">
+    <h2 class="text-lg font-semibold text-white">Afwijkingen</h2>
+    <div class="flex gap-1 text-xs">
+      {% for f, label in [('all','Alle'),('changed','Gewijzigd'),('added','Toegevoegd'),('removed','Verwijderd')] %}
+      <button @click="filter='{{ f }}'" :class="filter=='{{ f }}' ? 'bg-slate-700 text-white' : 'text-slate-400'" class="px-2.5 py-1 rounded-md hover:text-white">{{ label }}</button>
+      {% endfor %}
+    </div>
+  </div>
+  <div class="card overflow-x-auto">
+    <table class="w-full text-sm">
+      <thead class="text-left text-xs uppercase text-slate-400 border-b border-slate-800">
+        <tr><th class="p-3">Pad</th><th class="p-3">Type</th><th class="p-3">Baseline</th><th class="p-3">Actueel</th><th class="p-3"></th></tr>
+      </thead>
+      <tbody>
+        {% for c in node.changes %}
+        <tr x-show="filter=='all' || filter=='{{ c.type }}'" class="border-b border-slate-800/60 align-top">
+          <td class="p-3 font-mono text-xs text-white break-all">{{ c.path }}</td>
+          <td class="p-3"><span class="badge {{ {'changed':'badge-warn','added':'badge-ok','removed':'badge-err'}[c.type] }}">{{ c.type }}</span></td>
+          <td class="p-3"><pre class="val">{{ c.baseline | tojson(indent=1) if c.baseline is not none else '—' }}</pre></td>
+          <td class="p-3"><pre class="val">{{ c.actual | tojson(indent=1) if c.actual is not none else '—' }}</pre></td>
+          <td class="p-3 text-right"><button class="text-xs text-slate-400 hover:text-white whitespace-nowrap" onclick="ignorePath({{ c.path | tojson | forceescape }})">negeren</button></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endif %}
+
+{% if node.ignored %}
+<section class="mb-10">
+  <details class="card">
+    <summary class="p-4 cursor-pointer text-sm text-slate-300">Genegeerd door ignore-regels ({{ node.ignored | length }})</summary>
+    <div class="overflow-x-auto border-t border-slate-800">
+      <table class="w-full text-sm">
+        <thead class="text-left text-xs uppercase text-slate-400 border-b border-slate-800">
+          <tr><th class="p-3">Pad</th><th class="p-3">Type</th><th class="p-3">Actueel</th><th class="p-3">Regel</th></tr>
+        </thead>
+        <tbody>
+          {% for c in node.ignored %}
+          <tr class="border-b border-slate-800/60 align-top text-slate-400">
+            <td class="p-3 font-mono text-xs break-all">{{ c.path }}</td>
+            <td class="p-3">{{ c.type }}</td>
+            <td class="p-3"><pre class="val">{{ c.actual | tojson(indent=1) if c.actual is not none else '—' }}</pre></td>
+            <td class="p-3 font-mono text-xs">{{ c.rule }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </details>
+</section>
+{% endif %}
+
+{% if node.diff %}
+<section>
+  <h2 class="text-lg font-semibold text-white mb-3">Diff baseline &rarr; actueel</h2>
+  <div id="diff" class="rounded-lg overflow-hidden"></div>
+  <script id="diff-data" type="application/json">{{ node.diff | tojson }}</script>
+</section>
+{% endif %}
+{% endblock %}
+{% block scripts %}
+<script>
+  const el = document.getElementById('diff');
+  if (el) {
+    el.innerHTML = Diff2Html.html(JSON.parse(document.getElementById('diff-data').textContent), {
+      drawFileList: false, outputFormat: 'side-by-side', matching: 'lines', colorScheme: 'dark',
+    });
+  }
+</script>
+{% endblock %}

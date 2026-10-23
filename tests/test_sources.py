@@ -1,0 +1,63 @@
+import pytest
+
+from app import config, sources
+
+
+@pytest.fixture
+def home(tmp_path, monkeypatch):
+    root = tmp_path / "home"
+    cluster = root / "kubertinus"
+    (cluster / "patch").mkdir(parents=True)
+    (cluster / "_out").mkdir()
+    (cluster / ".git").mkdir()
+    (cluster / "_out" / "controlplane.yaml").write_text("version: v1alpha1\n")
+    (cluster / "patch" / "a.yaml").write_text("machine: {}\n")
+    (cluster / ".git" / "HEAD").write_text("x")
+    (root / ".ssh").mkdir()
+    (root / ".ssh" / "id_ed25519").write_text("private")
+    (root / "other").mkdir()
+    (tmp_path / "outside.yaml").write_text("secret")
+    (cluster / "escape.yaml").symlink_to(tmp_path / "outside.yaml")
+    (cluster / "ssh").symlink_to(root / ".ssh")
+    monkeypatch.setattr(config, "CONFIG_DIR", root)
+    state = {"base_dir": "kubertinus"}
+    monkeypatch.setattr(sources, "base_dir", lambda cid: state["base_dir"])
+    return state
+
+
+def test_list_files_skips_hidden_and_escapes(home):
+    files = sources.list_files("c1")
+    assert "_out/controlplane.yaml" in files and "patch/a.yaml" in files
+    assert not any(f.startswith(".git") or f.startswith("ssh") for f in files)
+    assert "escape.yaml" not in files
+
+
+def test_read_inside_base(home):
+    assert sources.read("c1", "patch/a.yaml") == b"machine: {}\n"
+
+
+@pytest.mark.parametrize(
+    "rel", ["../outside.yaml", "escape.yaml", "/etc/passwd", "patch", "nope.yaml", "../.ssh/id_ed25519", "ssh/id_ed25519", "../other"]
+)
+def test_read_refuses_escape_hidden_and_missing(home, rel):
+    with pytest.raises(sources.SourceError):
+        sources.read("c1", rel)
+
+
+def test_no_base_means_nothing(home):
+    home["base_dir"] = ""
+    assert sources.list_files("c1") == []
+    with pytest.raises(sources.SourceError):
+        sources.read("c1", "_out/controlplane.yaml")
+
+
+def test_list_dirs(home):
+    top = sources.list_dirs("")
+    assert [d["name"] for d in top["dirs"]] == ["kubertinus", "other"]
+    assert top["parent"] is None
+    assert next(d for d in top["dirs"] if d["name"] == "kubertinus")["talos"]
+    sub = sources.list_dirs("kubertinus")
+    assert sub["parent"] == "" and {d["name"] for d in sub["dirs"]} == {"_out", "patch"}
+    for bad in ("../", ".ssh", "kubertinus/ssh"):
+        with pytest.raises(sources.SourceError):
+            sources.list_dirs(bad)
