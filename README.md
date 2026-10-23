@@ -126,37 +126,23 @@ IMAGE_NAME=git.example.com/team/talos-drift IMAGE_TAG=1.0.0 docker compose build
 ### Image en CVE's
 
 Het runtime-image is `cgr.dev/chainguard/python:latest` (Wolfi): alleen Python en de libraries
-die het nodig heeft, geen shell, geen package manager, geen pip. Alleen dit image wordt verscheept.
+die het nodig heeft, geen shell, geen package manager, geen pip. Het OS-deel en de
+Python-pakketten hebben daardoor geen bekende CVE's.
 
-De bouwfases gebruiken Debian-images (`golang:latest`, `python:3.15-slim`): op de CI-runner
-weigert de kernel netwerkverkeer vanuit build-stappen in Wolfi-images (`sendto: EACCES`), terwijl
-Debian-stappen werken. De Python-dependencies worden met `pip --target` in `/srv/site-packages`
-geïnstalleerd. Ze moeten bij dezelfde Python-minorversie horen als het runtime-image; een
+talosctl en lego zijn de officiële releasebinaries, geverifieerd tegen de checksums van de release.
+Bij elke build wordt de nieuwste stabiele release gekozen uit de GitHub-releasefeeds, die ook als
+cache-sleutel dienen (vast zetten kan met `TALOSCTL_VERSION` / `LEGO_VERSION`). Scanners melden in
+die binaries soms CVE's in de meegebakken Go-standaardbibliotheek; die verdwijnen zodra Sidero
+of lego een release met een nieuwere Go uitbrengt, dus regelmatig opnieuw bouwen helpt.
+
+Alle bouwstappen draaien op het bouwplatform in Debian-images (`python:3.15-slim`): de
+Python-wheels voor de doelarchitectuur worden gedownload in plaats van onder emulatie
+geïnstalleerd, dus QEMU is niet nodig en een volledige build duurt seconden. PyYAML draait als
+pure Python. De pakketten moeten bij dezelfde Python-minorversie horen als het runtime-image; een
 controlestap laat de build falen als Chainguard naar een nieuwe versie gaat (pas dan
 `PYTHON_VERSION` aan, bijv. `--build-arg PYTHON_VERSION=3.16`).
 
-talosctl en lego worden niet als releasebinary gedownload maar **uit broncode gebouwd** met de
-nieuwste Go-toolchain en de nieuwste `golang.org/x/crypto` en
-`golang.org/x/net`, in `golang:latest`. De releasebinaries bevatten vaak een oudere Go-stdlib
-met bekende CVE's.
-Bij elke build wordt de nieuwste stabiele release (`vX.Y.Z`) van beide gekozen uit de
-GitHub-releasefeeds, die ook als cache-sleutel dienen (vast zetten kan met `TALOSCTL_VERSION` /
-`LEGO_VERSION`). De broncode komt via de Go-moduleproxy, gecontroleerd tegen `sum.golang.org`;
-de build gebruikt geen `git`. De Go-fase cross-compileert, dus zonder emulatie.
-
-Controleren:
-
-```bash
-trivy image --platform linux/amd64 talos-drift:latest
-```
-
-`.trivyignore` sluit alleen `GO-2026-5932` uit: een melding op de hele `golang.org/x/crypto`-module
-dat het subpakket `openpgp` niet meer onderhouden wordt. Geen van beide binaries importeert dat
-pakket. Omdat de bases `latest`-tags zijn, levert elke nieuwe build ook de nieuwste OS- en
-Python-fixes op; bouw dus regelmatig opnieuw (`docker compose build --pull`).
-
-De installatiestap van de Python-pakketten draait voor de niet-native architectuur onder emulatie,
-dus in CI is `docker/setup-qemu-action` (of binfmt op de runner) nodig.
+Controleren: `trivy image --platform linux/amd64 talos-drift:latest`.
 
 ## HTTPS en certificaten
 

@@ -1,9 +1,9 @@
-# Minimal, CVE-free image: Chainguard (Wolfi) Python without shell or package manager,
-# with talosctl and lego compiled from source using the newest Go toolchain.
+# Minimal image: Chainguard (Wolfi) Python without shell or package manager, plus the
+# official talosctl and lego release binaries.
 #
-# The build stages use Debian-based images (golang, python): on the CI runner, network
-# traffic from RUN steps in Wolfi images is refused inside BuildKit (sendto: EACCES), while
-# Debian-based steps work. Only the runtime image is Chainguard, which is what ships.
+# Every RUN step runs on the build platform in a Debian-based image: no emulation is needed
+# for the other architecture, and on the CI runner network traffic from RUN steps in Wolfi
+# images is refused inside BuildKit. Only the runtime image is Chainguard.
 
 # "latest" resolves to the newest stable release at build time; set a tag (e.g. v1.11.5) to pin.
 ARG TALOSCTL_VERSION=latest
@@ -11,17 +11,11 @@ ARG LEGO_VERSION=latest
 # Python minor version for installing the dependencies; must match the runtime image.
 ARG PYTHON_VERSION=3.15
 
-# --- talosctl + lego ---------------------------------------------------------
-# Built from source instead of using the release binaries, so they pick up the
-# newest Go standard library and golang.org/x fixes. Runs on the build platform
-# and cross-compiles, so no emulation is needed for the other architecture.
-FROM --platform=$BUILDPLATFORM golang:latest AS gobuild
+# --- talosctl + lego -------------------------------------------------------------
+FROM --platform=$BUILDPLATFORM python:${PYTHON_VERSION}-slim AS binaries
 ARG TALOSCTL_VERSION
 ARG LEGO_VERSION
-ARG TARGETOS
 ARG TARGETARCH
-# GOWORK=off: the talos module ships a go.work listing tool modules that are not part of it.
-ENV CGO_ENABLED=0 GOTOOLCHAIN=local GOWORK=off GOOS=$TARGETOS GOARCH=$TARGETARCH
 
 # Cache buster: Docker re-fetches these feeds on every build and only invalidates the
 # layers below when they change, i.e. when a release is published. (The GitHub API is
@@ -29,64 +23,73 @@ ENV CGO_ENABLED=0 GOTOOLCHAIN=local GOWORK=off GOOS=$TARGETOS GOARCH=$TARGETARCH
 ADD https://github.com/siderolabs/talos/releases.atom /tmp/talos-releases.atom
 ADD https://github.com/go-acme/lego/releases.atom /tmp/lego-releases.atom
 
-# Resolve "latest" to the newest stable vX.Y.Z release from the feeds above; fails loudly
-# instead of building nothing.
-WORKDIR /src
-RUN set -eu; \
-    resolve() { \
-      if [ "$2" != latest ]; then echo "$2"; return; fi; \
-      grep -o '<id>tag:github.com,2008:Repository/[0-9]*/v[0-9]*\.[0-9]*\.[0-9]*</id>' "$1" \
-        | sed 's|.*/\(v[^<]*\)</id>|\1|' | sort -V | tail -1; \
-    }; \
-    talos="$(resolve /tmp/talos-releases.atom "$TALOSCTL_VERSION")"; \
-    lego="$(resolve /tmp/lego-releases.atom "$LEGO_VERSION")"; \
-    [ -n "$talos" ] && [ -n "$lego" ] || { echo "Could not resolve versions (talos='$talos' lego='$lego')" >&2; exit 1; }; \
-    printf 'TALOS=%s\nLEGO=%s\n' "$talos" "$lego" > /src/versions; \
-    echo "Building talosctl ${talos} and lego ${lego} for ${GOOS}/${GOARCH} with $(go version)"
+# Downloads the release binaries for the target architecture and verifies them against
+# the release's checksum file.
+RUN <<'EOF' python
+import hashlib, io, os, re, tarfile, urllib.request
 
-# Sources come from the Go module proxy (checksum-verified against sum.golang.org).
-# talos replaces its nested pkg/machinery module with ./pkg/machinery, so that module is
-# fetched separately and put in place.
-RUN set -eu; . /src/versions; \
-    fetch() { \
-      dir="$(go mod download -json "$1@$2" | sed -n 's/^[[:space:]]*"Dir": "\(.*\)",$/\1/p')"; \
-      [ -n "$dir" ] || { echo "go mod download $1@$2 failed" >&2; exit 1; }; \
-      rm -rf "$3"; cp -R "$dir" "$3"; chmod -R u+w "$3"; \
-    }; \
-    lego_major="${LEGO%%.*}"; lego_mod=github.com/go-acme/lego; \
-    [ "$lego_major" = v0 ] || [ "$lego_major" = v1 ] || lego_mod="$lego_mod/$lego_major"; \
-    fetch github.com/siderolabs/talos "$TALOS" talos; \
-    fetch github.com/siderolabs/talos/pkg/machinery "$TALOS" talos/pkg/machinery; \
-    fetch "$lego_mod" "$LEGO" lego; \
-    go clean -modcache
+arch = os.environ["TARGETARCH"]
 
-RUN set -eu; . /src/versions; cd /src/talos; \
-    printf %s "$TALOS" > pkg/machinery/gendata/data/tag; \
-    printf %s undefined > pkg/machinery/gendata/data/sha; \
-    go get golang.org/x/crypto@latest golang.org/x/net@latest; \
-    go mod tidy; \
-    go build -trimpath -tags grpcnotrace -ldflags "-s -w" -o /out/talosctl ./cmd/talosctl; \
-    go clean -cache
+def latest(feed, wanted):
+    if wanted != "latest":
+        return wanted
+    tags = re.findall(r"<id>tag:github.com,2008:Repository/\d+/(v\d+\.\d+\.\d+)</id>", open(feed).read())
+    if not tags:
+        raise SystemExit(f"no stable release found in {feed}")
+    return max(tags, key=lambda t: tuple(map(int, t[1:].split("."))))
 
-RUN set -eu; . /src/versions; cd /src/lego; \
-    go get golang.org/x/crypto@latest golang.org/x/net@latest; \
-    go mod tidy; \
-    go build -trimpath -ldflags "-s -w -X main.version=${LEGO#v}" -o /out/lego .; \
-    go clean -cache; \
-    mkdir -p /out/data
+def fetch(url):
+    with urllib.request.urlopen(url, timeout=120) as r:
+        return r.read()
+
+def verified(base, asset, sums_file):
+    data = fetch(f"{base}/{asset}")
+    sums = dict(reversed(line.split()) for line in fetch(f"{base}/{sums_file}").decode().splitlines() if line.strip())
+    if hashlib.sha256(data).hexdigest() != sums.get(asset):
+        raise SystemExit(f"checksum mismatch for {asset}")
+    return data
+
+def install(name, data):
+    os.makedirs("/out", exist_ok=True)
+    with open(f"/out/{name}", "wb") as f:
+        f.write(data)
+    os.chmod(f"/out/{name}", 0o755)
+
+talos = latest("/tmp/talos-releases.atom", os.environ["TALOSCTL_VERSION"])
+lego = latest("/tmp/lego-releases.atom", os.environ["LEGO_VERSION"])
+print(f"talosctl {talos} and lego {lego} for linux/{arch}")
+
+install("talosctl", verified(f"https://github.com/siderolabs/talos/releases/download/{talos}",
+                             f"talosctl-linux-{arch}", "sha256sum.txt"))
+asset = f"lego_{lego}_linux_{arch}.tar.gz"
+tgz = verified(f"https://github.com/go-acme/lego/releases/download/{lego}", asset, f"lego_{lego[1:]}_checksums.txt")
+with tarfile.open(fileobj=io.BytesIO(tgz)) as tar:
+    install("lego", tar.extractfile("lego").read())
+os.makedirs("/out/data", exist_ok=True)
+EOF
 
 # --- Python dependencies ---------------------------------------------------------
-# Installed into a plain directory (no pip/setuptools at runtime). Must be the same Python
-# minor version as the runtime image; the pycheck stage below enforces that.
-FROM python:${PYTHON_VERSION}-slim AS pydeps
+# Wheels for the target platform are downloaded on the build platform (no emulation) into a
+# plain directory, so there is no pip/setuptools at runtime. PyYAML has no wheel for every
+# Python version; its pure-Python build works on any platform.
+FROM --platform=$BUILDPLATFORM python:${PYTHON_VERSION}-slim AS pydeps
+ARG TARGETARCH
 WORKDIR /srv
 COPY requirements.txt .
-RUN pip install --no-cache-dir --root-user-action=ignore --target /srv/site-packages -r requirements.txt \
- && python -c "import sys; print('%d.%d' % sys.version_info[:2])" > /srv/python-version
+RUN set -eu; \
+    case "$TARGETARCH" in amd64) arch=x86_64 ;; arm64) arch=aarch64 ;; *) echo "unsupported $TARGETARCH" >&2; exit 1 ;; esac; \
+    pyver="$(python -c "import sys; print('%d.%d' % sys.version_info[:2])")"; \
+    grep -iv '^pyyaml' requirements.txt > /tmp/requirements.txt; \
+    pip install --no-cache-dir --root-user-action=ignore --target /srv/site-packages \
+        --platform "manylinux2014_$arch" --platform "manylinux_2_28_$arch" \
+        --python-version "$pyver" --implementation cp --only-binary=:all: -r /tmp/requirements.txt; \
+    pip wheel --no-cache-dir --no-deps --no-binary pyyaml -w /tmp/wheels "$(grep -i '^pyyaml' requirements.txt)"; \
+    python -m zipfile -e /tmp/wheels/*.whl /srv/site-packages; \
+    echo "$pyver" > /srv/python-version
 
 # Fails the build if the runtime Python (Chainguard "latest") moved to another minor
 # version than the one the dependencies were installed for. Needs no network.
-FROM cgr.dev/chainguard/python:latest-dev AS pycheck
+FROM --platform=$BUILDPLATFORM cgr.dev/chainguard/python:latest-dev AS pycheck
 COPY --from=pydeps /srv/python-version /tmp/python-version
 RUN python -c "import sys; want = open('/tmp/python-version').read().strip(); have = '%d.%d' % sys.version_info[:2]; sys.exit(0 if want == have else f'Runtime Python {have} != dependency Python {want}: set PYTHON_VERSION={have}')" \
  && touch /tmp/python-ok
@@ -96,10 +99,10 @@ FROM cgr.dev/chainguard/python:latest
 WORKDIR /srv
 COPY --from=pydeps /srv/site-packages /srv/site-packages
 COPY --from=pycheck /tmp/python-ok /srv/.python-ok
-COPY --from=gobuild /out/talosctl /out/lego /usr/local/bin/
+COPY --from=binaries /out/talosctl /out/lego /usr/local/bin/
 COPY app ./app
 # Same uid as earlier images, so existing /data volumes stay readable.
-COPY --from=gobuild --chown=10001:10001 /out/data /data
+COPY --from=binaries --chown=10001:10001 /out/data /data
 USER 10001
 
 ENV PATH=/usr/local/bin:/usr/bin PYTHONPATH=/srv/site-packages \
