@@ -77,6 +77,14 @@ mappenkiezer de map van je cluster (mappen met een talosconfig of controlplane.y
 en daaruit kies je de bestanden en patches. Verwijzingen worden relatief aan de basismap opgeslagen:
 wissel je naar een ander cluster met dezelfde indeling (`_out/…`, `patch/…`), dan blijven ze werken.
 
+Op Linux gelden de echte bestandsrechten: de container draait als uid/gid `10001` en moet de map
+kunnen lezen. Een talosconfig staat standaard op `600`, dus geef bijvoorbeeld de groep leesrechten:
+
+```bash
+sudo chgrp -R 10001 /pad/naar/clusters && sudo chmod -R g+rX /pad/naar/clusters
+# of, zonder de groep te wijzigen: sudo setfacl -R -m u:10001:rX /pad/naar/clusters
+```
+
 De app leest gekoppelde bestanden bij elke scan opnieuw, dus wijzigingen op de host worden
 automatisch meegenomen. Verborgen bestanden en mappen (`.ssh`, `.talos`, …) worden nooit getoond of
 gelezen, en paden buiten de basismap (`..`, symlinks) worden geweigerd.

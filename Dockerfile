@@ -103,7 +103,7 @@ COPY --from=binaries /out/talosctl /out/lego /usr/local/bin/
 COPY app ./app
 # Same uid as earlier images, so existing /data volumes stay readable.
 COPY --from=binaries --chown=10001:10001 /out/data /data
-USER 10001
+USER 10001:10001
 
 ENV PATH=/usr/local/bin:/usr/bin PYTHONPATH=/srv/site-packages \
     PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1 DATA_DIR=/data TMP_DIR=/tmp
