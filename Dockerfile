@@ -14,7 +14,8 @@ ARG TALOSCTL_VERSION
 ARG LEGO_VERSION
 ARG TARGETOS
 ARG TARGETARCH
-ENV CGO_ENABLED=0 GOTOOLCHAIN=local GOOS=$TARGETOS GOARCH=$TARGETARCH
+# GOWORK=off: the talos module ships a go.work listing tool modules that are not part of it.
+ENV CGO_ENABLED=0 GOTOOLCHAIN=local GOWORK=off GOOS=$TARGETOS GOARCH=$TARGETARCH
 
 # Cache buster: Docker re-fetches these feeds on every build and only invalidates the
 # layers below when they change, i.e. when a release is published. (The GitHub API is
@@ -22,36 +23,41 @@ ENV CGO_ENABLED=0 GOTOOLCHAIN=local GOOS=$TARGETOS GOARCH=$TARGETARCH
 ADD https://github.com/siderolabs/talos/releases.atom /tmp/talos-releases.atom
 ADD https://github.com/go-acme/lego/releases.atom /tmp/lego-releases.atom
 
-# Resolve "latest" to the newest stable vX.Y.Z tag; fails loudly instead of cloning nothing.
+# Resolve "latest" to the newest stable vX.Y.Z release from the feeds above; fails loudly
+# instead of building nothing.
 WORKDIR /src
 RUN set -eu; \
     resolve() { \
       if [ "$2" != latest ]; then echo "$2"; return; fi; \
-      git ls-remote --tags --refs "$1" | sed -n 's|.*refs/tags/\(v[0-9]*\.[0-9]*\.[0-9]*\)$|\1|p' | sort -V | tail -1; \
+      grep -o '<id>tag:github.com,2008:Repository/[0-9]*/v[0-9]*\.[0-9]*\.[0-9]*</id>' "$1" \
+        | sed 's|.*/\(v[^<]*\)</id>|\1|' | sort -V | tail -1; \
     }; \
-    talos="$(resolve https://github.com/siderolabs/talos.git "$TALOSCTL_VERSION")"; \
-    lego="$(resolve https://github.com/go-acme/lego.git "$LEGO_VERSION")"; \
+    talos="$(resolve /tmp/talos-releases.atom "$TALOSCTL_VERSION")"; \
+    lego="$(resolve /tmp/lego-releases.atom "$LEGO_VERSION")"; \
     [ -n "$talos" ] && [ -n "$lego" ] || { echo "Could not resolve versions (talos='$talos' lego='$lego')" >&2; exit 1; }; \
     printf 'TALOS=%s\nLEGO=%s\n' "$talos" "$lego" > /src/versions; \
-    echo "Building talosctl ${talos} and lego ${lego} for ${GOOS}/${GOARCH} with $(go version)"; \
-    df -h /src | tail -1
+    echo "Building talosctl ${talos} and lego ${lego} for ${GOOS}/${GOARCH} with $(go version)"
 
-# git clone with retries: a single network hiccup shouldn't fail the whole build.
+# Sources come from the Go module proxy (checksum-verified against sum.golang.org), not git:
+# git's resolver failed inside BuildKit on the CI runner while Go's works.
+# talos replaces its nested pkg/machinery module with ./pkg/machinery, so that module is
+# fetched separately and put in place.
 RUN set -eu; . /src/versions; \
-    clone() { \
-      for i in 1 2 3; do \
-        rm -rf "$3"; \
-        git -c advice.detachedHead=false clone --quiet --depth 1 --branch "$2" "$1" "$3" && return 0; \
-        echo "git clone $1 ($2) failed, attempt $i" >&2; sleep $((i * 5)); \
-      done; \
-      return 1; \
+    fetch() { \
+      dir="$(go mod download -json "$1@$2" | sed -n 's/^[[:space:]]*"Dir": "\(.*\)",$/\1/p')"; \
+      [ -n "$dir" ] || { echo "go mod download $1@$2 failed" >&2; exit 1; }; \
+      rm -rf "$3"; cp -R "$dir" "$3"; chmod -R u+w "$3"; \
     }; \
-    clone https://github.com/siderolabs/talos.git "$TALOS" talos; \
-    clone https://github.com/go-acme/lego.git "$LEGO" lego
+    lego_major="${LEGO%%.*}"; lego_mod=github.com/go-acme/lego; \
+    [ "$lego_major" = v0 ] || [ "$lego_major" = v1 ] || lego_mod="$lego_mod/$lego_major"; \
+    fetch github.com/siderolabs/talos "$TALOS" talos; \
+    fetch github.com/siderolabs/talos/pkg/machinery "$TALOS" talos/pkg/machinery; \
+    fetch "$lego_mod" "$LEGO" lego; \
+    go clean -modcache
 
 RUN set -eu; . /src/versions; cd /src/talos; \
     printf %s "$TALOS" > pkg/machinery/gendata/data/tag; \
-    printf %s "$(git rev-parse --short HEAD)" > pkg/machinery/gendata/data/sha; \
+    printf %s undefined > pkg/machinery/gendata/data/sha; \
     go get golang.org/x/crypto@latest golang.org/x/net@latest; \
     go mod tidy; \
     go build -trimpath -tags grpcnotrace -ldflags "-s -w" -o /out/talosctl ./cmd/talosctl; \
