@@ -16,6 +16,20 @@ jobs:
 
       - uses: docker/setup-buildx-action@v3
 
+      # TEMPORARY: compare name resolution of Debian and Wolfi images inside BuildKit. Never fails.
+      - name: DNS diagnostics
+        continue-on-error: true
+        run: |
+          set +e
+          for platforms in linux/amd64 linux/amd64,linux/arm64; do
+            for img in python:3.14-slim cgr.dev/chainguard/python:latest-dev; do
+              echo "=================== $img | $platforms"
+              printf 'FROM %s\nCOPY dnscheck.py /tmp/dnscheck.py\nRUN python /tmp/dnscheck.py\n' "$img" \
+                | docker buildx build --no-cache --progress=plain --platform "$platforms" -f - .gitea/diag 2>&1 \
+                | grep -E '^#[0-9]+ [0-9.]+ |ERROR' | sed -E 's/^#[0-9]+ [0-9.]+ //'
+            done
+          done
+
       - uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
