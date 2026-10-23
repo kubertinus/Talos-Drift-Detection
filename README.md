@@ -132,8 +132,9 @@ een aparte bouwfase (`latest-dev`) in een venv geïnstalleerd en daarna overgeze
 talosctl en lego worden niet als releasebinary gedownload maar **uit broncode gebouwd** met de
 nieuwste Go-toolchain (`cgr.dev/chainguard/go:latest`) en de nieuwste `golang.org/x/crypto` en
 `golang.org/x/net`. De releasebinaries bevatten vaak een oudere Go-stdlib met bekende CVE's.
-Bij elke build wordt via de GitHub API de nieuwste release van beide gekozen (vast zetten kan met
-`TALOSCTL_VERSION` / `LEGO_VERSION`); de Go-fase cross-compileert, dus zonder emulatie.
+Bij elke build wordt de nieuwste stabiele tag (`vX.Y.Z`) van beide gekozen via `git ls-remote`;
+de release-feeds dienen als cache-sleutel, dus zonder de rate limit van de GitHub API (vast zetten
+kan met `TALOSCTL_VERSION` / `LEGO_VERSION`). De Go-fase cross-compileert, dus zonder emulatie.
 
 Controleren:
 

@@ -16,29 +16,52 @@ ARG TARGETOS
 ARG TARGETARCH
 ENV CGO_ENABLED=0 GOTOOLCHAIN=local GOOS=$TARGETOS GOARCH=$TARGETARCH
 
-# Docker re-fetches these URLs on every build and only invalidates the cache below
-# when their content changes, i.e. when a new release is published.
-ADD https://api.github.com/repos/siderolabs/talos/releases/latest /tmp/talos-latest.json
-ADD https://api.github.com/repos/go-acme/lego/releases/latest /tmp/lego-latest.json
+# Cache buster: Docker re-fetches these feeds on every build and only invalidates the
+# layers below when they change, i.e. when a release is published. (The GitHub API is
+# avoided: unauthenticated it allows 60 requests per hour, too few for shared CI runners.)
+ADD https://github.com/siderolabs/talos/releases.atom /tmp/talos-releases.atom
+ADD https://github.com/go-acme/lego/releases.atom /tmp/lego-releases.atom
 
+# Resolve "latest" to the newest stable vX.Y.Z tag; fails loudly instead of cloning nothing.
 WORKDIR /src
 RUN set -eu; \
-    resolve() { [ "$1" = latest ] && sed -n 's/.*"tag_name": *"\([^"]*\)".*/\1/p' "$2" | head -1 || echo "$1"; }; \
-    talos="$(resolve "$TALOSCTL_VERSION" /tmp/talos-latest.json)"; \
-    lego="$(resolve "$LEGO_VERSION" /tmp/lego-latest.json)"; \
+    resolve() { \
+      if [ "$2" != latest ]; then echo "$2"; return; fi; \
+      git ls-remote --tags --refs "$1" | sed -n 's|.*refs/tags/\(v[0-9]*\.[0-9]*\.[0-9]*\)$|\1|p' | sort -V | tail -1; \
+    }; \
+    talos="$(resolve https://github.com/siderolabs/talos.git "$TALOSCTL_VERSION")"; \
+    lego="$(resolve https://github.com/go-acme/lego.git "$LEGO_VERSION")"; \
+    [ -n "$talos" ] && [ -n "$lego" ] || { echo "Could not resolve versions (talos='$talos' lego='$lego')" >&2; exit 1; }; \
+    printf 'TALOS=%s\nLEGO=%s\n' "$talos" "$lego" > /src/versions; \
     echo "Building talosctl ${talos} and lego ${lego} for ${GOOS}/${GOARCH} with $(go version)"; \
-    git -c advice.detachedHead=false clone -q --depth 1 --branch "$talos" https://github.com/siderolabs/talos.git talos; \
-    git -c advice.detachedHead=false clone -q --depth 1 --branch "$lego" https://github.com/go-acme/lego.git lego; \
-    cd /src/talos; \
-    printf %s "$talos" > pkg/machinery/gendata/data/tag; \
+    df -h /src | tail -1
+
+# git clone with retries: a single network hiccup shouldn't fail the whole build.
+RUN set -eu; . /src/versions; \
+    clone() { \
+      for i in 1 2 3; do \
+        rm -rf "$3"; \
+        git -c advice.detachedHead=false clone --quiet --depth 1 --branch "$2" "$1" "$3" && return 0; \
+        echo "git clone $1 ($2) failed, attempt $i" >&2; sleep $((i * 5)); \
+      done; \
+      return 1; \
+    }; \
+    clone https://github.com/siderolabs/talos.git "$TALOS" talos; \
+    clone https://github.com/go-acme/lego.git "$LEGO" lego
+
+RUN set -eu; . /src/versions; cd /src/talos; \
+    printf %s "$TALOS" > pkg/machinery/gendata/data/tag; \
     printf %s "$(git rev-parse --short HEAD)" > pkg/machinery/gendata/data/sha; \
     go get golang.org/x/crypto@latest golang.org/x/net@latest; \
     go mod tidy; \
     go build -trimpath -tags grpcnotrace -ldflags "-s -w" -o /out/talosctl ./cmd/talosctl; \
-    cd /src/lego; \
+    go clean -cache
+
+RUN set -eu; . /src/versions; cd /src/lego; \
     go get golang.org/x/crypto@latest golang.org/x/net@latest; \
     go mod tidy; \
-    go build -trimpath -ldflags "-s -w -X main.version=${lego#v}" -o /out/lego .; \
+    go build -trimpath -ldflags "-s -w -X main.version=${LEGO#v}" -o /out/lego .; \
+    go clean -cache; \
     mkdir -p /out/data
 
 # --- Python dependencies ---------------------------------------------------------
