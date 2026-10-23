@@ -113,7 +113,10 @@ def read(cid: str, rel: str) -> bytes:
     path = resolve(cid, rel)
     if path.stat().st_size > MAX_SIZE:
         raise SourceError(f"{rel} is groter dan 1 MB")
-    return path.read_bytes()
+    try:
+        return path.read_bytes()
+    except OSError as e:
+        raise SourceError(f"{rel} niet leesbaar: {e.strerror} (de container draait als uid {os.getuid()})") from e
 
 
 MAX_FILES = 500

@@ -1,3 +1,5 @@
+import os
+
 import pytest
 
 from app import config, sources
@@ -71,3 +73,15 @@ def test_mount_root_as_base(home):
     assert sources.read("c1", "kubertinus/patch/a.yaml") == b"machine: {}\n"
     with pytest.raises(sources.SourceError):
         sources.read("c1", ".ssh/id_ed25519")
+
+
+def test_unreadable_file_gives_clear_error(home, tmp_path):
+    f = tmp_path / "home" / "kubertinus" / "patch" / "a.yaml"
+    f.chmod(0)
+    try:
+        if os.access(f, os.R_OK):
+            pytest.skip("running as root")
+        with pytest.raises(sources.SourceError, match="niet leesbaar"):
+            sources.read("c1", "patch/a.yaml")
+    finally:
+        f.chmod(0o644)
