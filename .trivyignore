@@ -1,0 +1,4 @@
+# GO-2026-5932: golang.org/x/crypto/openpgp is unmaintained (advisory on the whole module,
+# no fixed version). Neither talosctl nor lego imports that package
+# (checked with `go list -deps`), so the binaries are not affected.
+GO-2026-5932

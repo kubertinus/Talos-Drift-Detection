@@ -33,6 +33,8 @@ gescheiden in **controlplanes** en **workers**, voor **meerdere clusters** tegel
 - Alleen bereikbaar via HTTPS (TLS 1.2+); HTTP stuurt door. Bij de eerste start wordt een
   self-signed certificaat gemaakt, daarna kies je Let's Encrypt of een eigen certificaat.
 - Container draait als non-root, read-only rootfs, `cap_drop: ALL`, `no-new-privileges`.
+- Minimaal image zonder bekende CVE's: Chainguard/Wolfi-Python zonder shell of package manager,
+  talosctl en lego uit broncode gebouwd met de nieuwste Go (zie *Image en CVE's*).
 
 > **Rechten:** de machineconfig is een *sensitive* resource in Talos. Een talosconfig met alleen
 > `os:reader` kan die niet lezen; de app heeft een talosconfig met `os:admin` nodig. Beperk daarom
@@ -121,12 +123,31 @@ docker login git.example.com
 IMAGE_NAME=git.example.com/team/talos-drift IMAGE_TAG=1.0.0 docker compose build --push
 ```
 
-### talosctl-versie
+### Image en CVE's
 
-Bij elke `docker compose build` controleert Docker via de GitHub API wat de nieuwste stabiele
-Talos-release is. Is er een nieuwe release, dan wordt talosctl opnieuw gedownload en tegen
-`sha256sum.txt` van die release geverifieerd; anders komt de laag uit de cache. Met
-`docker compose build --no-cache` forceer je een volledige herbouw.
+Het runtime-image is `cgr.dev/chainguard/python:latest` (Wolfi): alleen Python en de libraries
+die het nodig heeft, geen shell, geen package manager, geen pip. De Python-dependencies worden in
+een aparte bouwfase (`latest-dev`) in een venv geïnstalleerd en daarna overgezet.
+
+talosctl en lego worden niet als releasebinary gedownload maar **uit broncode gebouwd** met de
+nieuwste Go-toolchain (`cgr.dev/chainguard/go:latest`) en de nieuwste `golang.org/x/crypto` en
+`golang.org/x/net`. De releasebinaries bevatten vaak een oudere Go-stdlib met bekende CVE's.
+Bij elke build wordt via de GitHub API de nieuwste release van beide gekozen (vast zetten kan met
+`TALOSCTL_VERSION` / `LEGO_VERSION`); de Go-fase cross-compileert, dus zonder emulatie.
+
+Controleren:
+
+```bash
+trivy image --platform linux/amd64 talos-drift:latest
+```
+
+`.trivyignore` sluit alleen `GO-2026-5932` uit: een melding op de hele `golang.org/x/crypto`-module
+dat het subpakket `openpgp` niet meer onderhouden wordt. Geen van beide binaries importeert dat
+pakket. Omdat de bases `latest`-tags zijn, levert elke nieuwe build ook de nieuwste OS- en
+Python-fixes op; bouw dus regelmatig opnieuw (`docker compose build --pull`).
+
+De installatiestap van de Python-pakketten draait voor de niet-native architectuur onder emulatie,
+dus in CI is `docker/setup-qemu-action` (of binfmt op de runner) nodig.
 
 ## HTTPS en certificaten
 
