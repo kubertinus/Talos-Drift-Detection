@@ -48,7 +48,8 @@ def base_dir(cid: str) -> str:
 
 def set_base_dir(cid: str, rel: str) -> None:
     s = store.settings(cid)
-    s["base_dir"] = rel.strip("/")
+    # "." is the mounted directory itself (e.g. when CONFIG_HOST_DIR points at one cluster folder).
+    s["base_dir"] = rel.strip("/") or "."
     store.save_settings(cid, s)
 
 

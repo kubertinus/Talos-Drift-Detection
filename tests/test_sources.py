@@ -61,3 +61,13 @@ def test_list_dirs(home):
     for bad in ("../", ".ssh", "kubertinus/ssh"):
         with pytest.raises(sources.SourceError):
             sources.list_dirs(bad)
+
+
+def test_mount_root_as_base(home):
+    home["base_dir"] = "."
+    files = sources.list_files("c1")
+    assert "kubertinus/patch/a.yaml" in files
+    assert not any(f.startswith(".ssh") or "/.git" in f for f in files)
+    assert sources.read("c1", "kubertinus/patch/a.yaml") == b"machine: {}\n"
+    with pytest.raises(sources.SourceError):
+        sources.read("c1", ".ssh/id_ed25519")

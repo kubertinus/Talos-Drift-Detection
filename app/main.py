@@ -463,11 +463,9 @@ async def set_base_dir(request: Request, cid: str, path: str = Form(""), csrf: s
         sources.list_dirs(path)
     except sources.SourceError as e:
         return _back(cid, err=str(e))
-    if not path.strip("/"):
-        return _back(cid, err="Kies een submap als basismap, niet de hele gekoppelde map.")
     sources.set_base_dir(cid, path)
     scanner.request(cid)
-    return _back(cid, msg=f"Basismap ingesteld op {path}")
+    return _back(cid, msg=f"Basismap ingesteld op ~/{sources.base_dir(cid).lstrip('.')}")
 
 
 @app.post("/settings/{cid}/link/{kind}", dependencies=[Depends(auth.require_login)])
