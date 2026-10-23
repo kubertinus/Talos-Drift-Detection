@@ -144,6 +144,10 @@ controlestap laat de build falen als Chainguard naar een nieuwe versie gaat (pas
 
 Controleren: `trivy image --platform linux/amd64 talos-drift:latest`.
 
+De web-UI laadt niets van internet: Tailwind, Alpine.js en diff2html zitten (vaste versies) in
+`app/static/vendor/`. De app werkt dus ook op een systeem zonder internetverbinding; alleen
+Let's Encrypt heeft dan uiteraard geen zin.
+
 ## HTTPS en certificaten
 
 De app is alleen via HTTPS bereikbaar. In de container luistert HTTPS op 8443 en HTTP op 8080;

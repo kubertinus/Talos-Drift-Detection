@@ -1,8 +1,8 @@
 {% extends "base.html" %}
 {% block title %}{{ node.hostname }} · Talos Drift Detection{% endblock %}
 {% block head %}
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/diff2html@3.4.48/bundles/css/diff2html.min.css">
-<script src="https://cdn.jsdelivr.net/npm/diff2html@3.4.48/bundles/js/diff2html.min.js"></script>
+<link rel="stylesheet" href="/static/vendor/diff2html-3.4.48.min.css">
+<script src="/static/vendor/diff2html-3.4.48.min.js"></script>
 {% endblock %}
 {% block content %}
 <div class="text-sm text-slate-400"><a href="/" class="hover:text-white">Overzicht</a> <span class="text-slate-600">/</span> <a href="/c/{{ cluster.id }}" class="hover:text-white">{{ cluster.name }}</a> <span class="text-slate-600">/</span></div>
