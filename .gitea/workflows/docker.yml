@@ -11,10 +11,17 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # Emulation for building the non-native architecture.
-      #- uses: docker/setup-qemu-action@v3
+      # Emulation for the non-native architecture (the Python dependency install runs per platform).
+      - uses: docker/setup-qemu-action@v3
 
+      # The runner's own resolver (e.g. 127.0.0.53) isn't reachable from BuildKit's build
+      # containers, so RUN steps couldn't resolve github.com. Give BuildKit explicit DNS servers;
+      # replace them with an internal resolver if outbound DNS is blocked on the runner network.
       - uses: docker/setup-buildx-action@v3
+        with:
+          buildkitd-config-inline: |
+            [dns]
+              nameservers = ["1.1.1.1", "8.8.8.8"]
 
       - uses: docker/login-action@v3
         with:
