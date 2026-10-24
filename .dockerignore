@@ -5,3 +5,4 @@ secrets
 .venv
 tests
 **/__pycache__
+docs

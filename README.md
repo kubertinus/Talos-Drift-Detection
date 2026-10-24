@@ -4,6 +4,8 @@ Web app that compares the live machine config of every Talos node with the origi
 `controlplane.yaml` / `worker.yaml` and shows the configuration drift per node,
 split into **control planes** and **workers**, for **multiple clusters** at once.
 
+![Overview of all clusters with per-node status](docs/overview.png)
+
 - Overview with the status of all clusters: OK / drift / error, with a coloured block per node
 - Per cluster its own base folder, files, patches, ignore rules and scan interval
 - Node discovery via `talosctl get members` (or a manual node list)
