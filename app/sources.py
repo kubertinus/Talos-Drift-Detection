@@ -119,6 +119,76 @@ def read(cid: str, rel: str) -> bytes:
         raise SourceError(f"{rel} not readable: {e.strerror} (the container runs as uid {os.getuid()})") from e
 
 
+def check_new_file(cid: str, rel: str) -> None:
+    """Raise unless rel is a free, writable-looking .yaml path inside the base folder."""
+    base = base_path(cid)
+    if not base:
+        raise SourceError("Set a base folder first to save the patch as a file")
+    if not rel.endswith((".yaml", ".yml")):
+        raise SourceError(f"{rel}: the file name must end in .yaml or .yml")
+    path = _inside(base, rel)
+    if not path or path == base:
+        raise SourceError(f"{rel} is not a valid file path in the base folder")
+    if path.exists():
+        raise SourceError(f"{rel} already exists in the base folder")
+
+
+def write(cid: str, rel: str, data: bytes) -> None:
+    """Write a file inside the base folder (a linked patch, or a new one).
+
+    Existing files are rewritten in place so the host keeps their owner and mode.
+    """
+    base = base_path(cid)
+    if not base:
+        raise SourceError(f"No base folder set or found for {rel}")
+    if len(data) > MAX_SIZE:
+        raise SourceError(f"{rel} is larger than 1 MB")
+    path = _inside(base, rel)
+    if not path or path == base or path.is_dir():
+        raise SourceError(f"{rel} is not a valid file path in the base folder")
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with open(path, "r+b" if path.exists() else "xb") as f:
+            f.write(data)
+            f.truncate()
+    except OSError as e:
+        raise SourceError(f"{rel} not writable: {e.strerror} (the container runs as uid {os.getuid()})") from e
+
+
+def check_writable(cid: str, rel: str, action: str) -> None:
+    """Raise unless the container may `write`, `create` or `delete` this file in the base folder.
+
+    Checked before a rollout, so a permission problem never shows up only after the nodes changed.
+    """
+    base = base_path(cid)
+    path = _inside(base, rel) if base else None
+    if not path:
+        raise SourceError(f"{rel} is not a valid file path in the base folder")
+    if action == "write":
+        target, mode = path, os.W_OK
+    elif action == "delete":
+        target, mode = path.parent, os.W_OK | os.X_OK
+    else:
+        target = path.parent
+        while not target.exists() and target != base:
+            target = target.parent
+        mode = os.W_OK | os.X_OK
+    if not os.access(target, mode):
+        raise SourceError(f"{rel}: no permission to {action} it (the container runs as uid {os.getuid()}); "
+                          "fix the permissions first, nothing was changed")
+
+
+def delete_file(cid: str, rel: str) -> None:
+    """Delete a (patch) file inside the base folder; refuses anything else."""
+    path = resolve(cid, rel)
+    if (base_path(cid) / rel).is_symlink():
+        raise SourceError(f"{rel} is a symlink; not deleted")
+    try:
+        path.unlink()
+    except OSError as e:
+        raise SourceError(f"{rel} not deleted: {e.strerror} (the container runs as uid {os.getuid()})") from e
+
+
 MAX_FILES = 500
 
 

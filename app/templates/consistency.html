@@ -1,0 +1,86 @@
+{% extends "base.html" %}
+{% block title %}Consistency {{ cluster.name }} · Talos Config Manager{% endblock %}
+{% block content %}
+<div class="flex items-baseline justify-between mb-6">
+  <div>
+    <div class="text-sm text-slate-400 mb-1"><a href="/" class="hover:text-white">Overview</a> <span class="text-slate-600">/</span></div>
+    <h1 class="text-2xl font-semibold text-white">{{ cluster.name }}</h1>
+    <div class="text-sm text-slate-400">Differences between nodes of the same role</div>
+  </div>
+  <div class="text-sm text-slate-400">
+    {% if scan %}Last scan <time class="rel" datetime="{{ scan.finished_at }}">{{ scan.finished_at }}</time>{% else %}No scan yet{% endif %}
+  </div>
+</div>
+{% set tab = 'consistency' %}{% include "_cluster_tabs.html" %}
+
+<p class="text-sm text-slate-400 mb-8 max-w-3xl">
+  Nodes of one role should have the same configuration, apart from what the ignore rules exclude (hostname,
+  IP addresses, install disk, …). <span class="badge badge-warn">unplanned</span> differences are not explained by
+  a patch; <span class="badge badge-muted">via patch</span> differences come from a patch that targets only some
+  of the nodes. Use <em>ignore</em> for a value that may legitimately differ per node.
+</p>
+
+{% if not scan or scan.peers is not defined %}
+<div class="alert-warn">The latest scan predates this comparison. Click <strong>Scan now</strong> to compare the nodes.</div>
+{% else %}
+{% for role, label in [('controlplane', 'Control planes'), ('worker', 'Workers')] %}
+{% set diffs = peers.get(role) %}
+{% set nodes = groups[role] %}
+<section class="mb-12" x-data="{ all: false }">
+  <div class="flex flex-wrap items-baseline justify-between gap-3 mb-3">
+    <div class="flex items-baseline gap-3">
+      <h2 class="text-lg font-semibold text-white">{{ label }}</h2>
+      <span class="text-xs text-slate-500">{{ nodes | length }} node{{ 's' if nodes | length != 1 }}</span>
+    </div>
+    {% if diffs %}
+    {% set unplanned = diffs | rejectattr('intended') | list | length %}
+    <div class="flex items-center gap-3 text-sm">
+      {% if unplanned %}<span class="text-amber-300">{{ unplanned }} unplanned</span>{% endif %}
+      {% if diffs | length - unplanned %}<span class="text-slate-400">{{ diffs | length - unplanned }} via patch</span>{% endif %}
+      <div class="flex gap-1 text-xs">
+        <button @click="all=false" :class="!all ? 'bg-slate-700 text-white' : 'text-slate-400'" class="px-2.5 py-1 rounded-md">Unplanned</button>
+        <button @click="all=true" :class="all ? 'bg-slate-700 text-white' : 'text-slate-400'" class="px-2.5 py-1 rounded-md">All</button>
+      </div>
+    </div>
+    {% endif %}
+  </div>
+
+  {% if diffs is none %}
+  <div class="text-sm text-slate-500">At least two reachable {{ label | lower }} are needed to compare.</div>
+  {% elif not diffs %}
+  <div class="alert-ok">All {{ label | lower }} have the same configuration (apart from ignored paths).</div>
+  {% else %}
+  {% set hosts = diffs[0]['values'].keys() | list %}
+  <div x-show="!all && {{ 'true' if not (diffs | rejectattr('intended') | list) else 'false' }}" class="alert-ok mb-3">No unplanned differences; only differences that come from patches. Choose <em>All</em> to see them.</div>
+  <div class="card overflow-x-auto">
+    <table class="w-full text-sm">
+      <thead class="text-left text-xs uppercase text-slate-400 border-b border-slate-800">
+        <tr>
+          <th class="p-3">Path</th><th class="p-3"></th>
+          {% for h in hosts %}<th class="p-3 normal-case font-medium text-slate-300 whitespace-nowrap">{{ h }}</th>{% endfor %}
+          <th class="p-3"></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for d in diffs %}
+        <tr class="border-b border-slate-800/60 align-top" {% if d.intended %}x-show="all"{% endif %}>
+          <td class="p-3 font-mono text-xs text-white break-all">{{ d.path }}</td>
+          <td class="p-3">{% if d.intended %}<span class="badge badge-muted">via patch</span>{% else %}<span class="badge badge-warn">unplanned</span>{% endif %}</td>
+          {% for h in hosts %}
+          <td class="p-3 {{ 'bg-amber-500/20 ring-1 ring-inset ring-amber-500/40' if h in d.odd and not d.intended else '' }}">
+            {% if h in d.absent %}<span class="text-xs text-slate-500 italic">absent</span>
+            {% else %}<pre class="val {{ 'text-amber-200' if h in d.odd and not d.intended else '' }}">{{ d['values'][h] | tojson(indent=1) }}</pre>{% endif %}
+          </td>
+          {% endfor %}
+          <td class="p-3 text-right"><button class="op-only text-xs text-slate-400 hover:text-white whitespace-nowrap" onclick="ignorePath({{ d.path | tojson | forceescape }})">ignore</button></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% if diffs | length >= 300 %}<div class="text-xs text-slate-500 mt-2">Only the first 300 differing paths are shown.</div>{% endif %}
+  {% endif %}
+</section>
+{% endfor %}
+{% endif %}
+{% endblock %}

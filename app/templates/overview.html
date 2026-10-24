@@ -64,6 +64,9 @@
     {% elif c.scan and c.scan.error %}
     <div class="mt-4 text-sm text-rose-300 line-clamp-2" title="{{ c.scan.error }}">{{ c.scan.error }}</div>
     {% endif %}
+    {% if c.unplanned %}
+    <div class="mt-3 text-xs text-amber-300">{{ c.unplanned }} unplanned difference{{ 's' if c.unplanned != 1 }} between nodes of the same role</div>
+    {% endif %}
 
     {% if c.nodes %}
     <div class="mt-4 space-y-3">

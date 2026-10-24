@@ -3,8 +3,8 @@
 Patches belong to a cluster. A patch is either uploaded (stored encrypted as
 `<cluster>.patch-<id>`) or linked to a file in the cluster's base folder
 (`path`, read live). The ordered index with name and target lives in the
-encrypted `<cluster>.patches` blob. A patch targets
-all nodes, one role, or a single node (by hostname or address).
+encrypted `<cluster>.patches` blob. A patch targets all nodes, one role,
+a single node (`node:<x>`) or a selection (`nodes:<x>,<y>`), by hostname or address.
 """
 import hashlib
 import json
@@ -35,16 +35,31 @@ def all_patches(cid: str) -> list[dict]:
     return _load(cid)
 
 
+def target_nodes(target: str) -> list[str]:
+    """Hostnames/addresses named by a `node:` or `nodes:` target; [] for all/role targets."""
+    if target.startswith("node:"):
+        return [n for n in [target.removeprefix("node:")] if n]
+    if target.startswith("nodes:"):
+        return [n for n in target.removeprefix("nodes:").split(",") if n]
+    return []
+
+
+def nodes_target(names: list[str]) -> str:
+    names = list(dict.fromkeys(n.strip() for n in names if n.strip()))
+    return f"node:{names[0]}" if len(names) == 1 else f"nodes:{','.join(names)}"  # "nodes:" if empty: invalid
+
+
 def target_label(target: str) -> str:
     if target == "all":
         return "All nodes"
     if target in ROLES:
         return "Control planes" if target == "controlplane" else "Workers"
-    return f"Node {target.removeprefix('node:')}"
+    names = target_nodes(target)
+    return f"Node {names[0]}" if len(names) == 1 else f"Nodes {', '.join(names)}"
 
 
 def valid_target(target: str) -> bool:
-    return target in ("all", *ROLES) or (target.startswith("node:") and len(target) > 5)
+    return target in ("all", *ROLES) or bool(target_nodes(target))
 
 
 def add(cid: str, name: str, data: bytes, target: str) -> dict:
@@ -107,12 +122,64 @@ def _materialize(cid: str, p: dict):
             yield path
 
 
+def get(cid: str, patch_id: str) -> dict | None:
+    return next((p for p in _load(cid) if p["id"] == patch_id), None)
+
+
+def read(cid: str, p: dict) -> bytes:
+    """Current content of a patch (linked file read live, or the encrypted upload)."""
+    if p.get("path"):
+        return sources.read(cid, p["path"])
+    data = vault.get().load(key(cid, f"patch-{p['id']}"))
+    if data is None:
+        raise sources.SourceError(f"{p['name']} has no stored content")
+    return data
+
+
+def save(cid: str, patch_id: str | None, data: bytes, target: str, name: str = "", path: str = "") -> dict:
+    """Store new content for a patch and set its target.
+
+    An existing linked patch is written back to its file; an uploaded one is replaced in the
+    vault. A new patch becomes a file in the base folder when `path` is given, else an upload.
+    """
+    if patch_id is None:
+        if path:
+            sources.write(cid, path, data)
+            return add_link(cid, path, target)
+        return add(cid, name or "patch.yaml", data, target)
+    index = _load(cid)
+    p = next(p for p in index if p["id"] == patch_id)
+    if p.get("path"):
+        sources.write(cid, p["path"], data)
+    else:
+        vault.get().save(key(cid, f"patch-{patch_id}"), data)
+        p["fingerprint"] = hashlib.sha256(data).hexdigest()[:16]
+        p["size"] = len(data)
+    p["target"] = target
+    p["uploaded"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    _save(cid, index)
+    return p
+
+
 def set_target(cid: str, patch_id: str, target: str) -> None:
     index = _load(cid)
     for p in index:
         if p["id"] == patch_id:
             p["target"] = target
     _save(cid, index)
+
+
+def position(cid: str, patch_id: str) -> int | None:
+    return next((i for i, p in enumerate(_load(cid)) if p["id"] == patch_id), None)
+
+
+def place(cid: str, patch_id: str, index: int) -> None:
+    """Move a patch to a list position (order matters: later patches win)."""
+    patches_ = _load(cid)
+    entry = next(p for p in patches_ if p["id"] == patch_id)
+    patches_.remove(entry)
+    patches_.insert(min(index, len(patches_)), entry)
+    _save(cid, patches_)
 
 
 def move(cid: str, patch_id: str, step: int) -> None:
@@ -126,8 +193,7 @@ def move(cid: str, patch_id: str, step: int) -> None:
 
 def applicable(role: str, hostname: str, address: str, index: list[dict]) -> list[dict]:
     """Patches for a node, ordered: all nodes, then its role, then node-specific."""
-    nodes = {f"node:{hostname}", f"node:{address}"}
-    hits = [p for p in index if p["target"] in ("all", role) or p["target"] in nodes]
+    hits = [p for p in index if p["target"] in ("all", role) or {hostname, address} & set(target_nodes(p["target"]))]
     return sorted(hits, key=lambda p: _GROUP.get(p["target"], 2))  # stable: keeps list order
 
 

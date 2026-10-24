@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 
 import yaml
 
-from . import config, drift, patches, sources, store, talos
+from . import config, drift, notify, patches, sources, store, talos
 
 log = logging.getLogger("scanner")
 _locks: dict[str, asyncio.Lock] = {}
@@ -119,6 +119,7 @@ async def _scan_node(sem, tc_path: str, member: dict, baselines: Baselines, igno
     result = drift.compute(baseline, actual, ignore)
     return {
         **node,
+        "_baseline": baseline,  # only for comparing nodes with each other; dropped before storing
         "patches": applied,
         "status": "drift" if result["changes"] else "in-sync",
         "drift_count": len(result["changes"]),
@@ -128,6 +129,56 @@ async def _scan_node(sem, tc_path: str, member: dict, baselines: Baselines, igno
         "signature": drift.signature(result["changes"]),
         "shape": drift.shape(result["changes"]),
     }
+
+
+BAD = ("drift", "unreachable", "patch-error", "no-baseline")
+
+
+def _unplanned(scan: dict | None) -> set[tuple]:
+    return {(role, d["path"]) for role, diffs in ((scan or {}).get("peers") or {}).items()
+            for d in diffs if not d["intended"]}
+
+
+def _notify_changes(cluster: dict, prev: dict | None, scan: dict) -> None:
+    """Webhook for what got worse since the previous scan (not for every scan that is still bad)."""
+    if prev is None:
+        return
+    before = {n["address"]: n["status"] for n in prev.get("nodes", [])}
+    worse = [n for n in scan["nodes"] if n["status"] in BAD and before.get(n["address"]) != n["status"]]
+    better = [n for n in scan["nodes"] if n["status"] == "in-sync" and before.get(n["address"]) in BAD]
+    if worse:
+        notify.send("nodes.degraded", cluster,
+                    f"{cluster['name']}: " + ", ".join(f"{n['hostname']} {n['status']}" for n in worse),
+                    nodes={n["hostname"]: n["status"] for n in worse})
+    if better:
+        notify.send("nodes.recovered", cluster,
+                    f"{cluster['name']}: back in sync: " + ", ".join(n["hostname"] for n in better),
+                    nodes=[n["hostname"] for n in better])
+    if scan.get("error") and scan["error"] != prev.get("error"):
+        notify.send("scan.error", cluster, f"{cluster['name']}: scan failed: {scan['error']}", error=scan["error"])
+    new_diffs = _unplanned(scan) - _unplanned(prev)
+    if new_diffs:
+        notify.send("consistency.unplanned", cluster,
+                    f"{cluster['name']}: {len(new_diffs)} new unplanned difference(s) between nodes of the same role",
+                    paths=sorted(f"{role}: {path}" for role, path in new_diffs))
+
+
+def _peers(nodes: list[dict], ignore: list[str]) -> dict[str, list[dict]]:
+    """Differences between the nodes of each role; counts each node's unplanned odd paths."""
+    peers = {}
+    for n in nodes:
+        n["peer_odd"] = 0
+    for role in patches.ROLES:
+        group = [n for n in nodes if n.get("role") == role and n.get("config")]
+        if len(group) >= 2:
+            peers[role] = drift.peer_differences(
+                [{"hostname": n["hostname"], "actual": n["config"], "baseline": n.get("_baseline")} for n in group], ignore
+            )
+            for n in group:
+                n["peer_odd"] = sum(1 for d in peers[role] if not d["intended"] and n["hostname"] in d["odd"])
+    for n in nodes:
+        n.pop("_baseline", None)
+    return peers
 
 
 async def _scan_once(cid: str) -> dict:
@@ -155,9 +206,12 @@ async def _scan_once(cid: str) -> dict:
                 *(_scan_node(sem, tc_path, m, baselines, settings["ignore"], direct) for m in members)
             )
     drift.mark_outliers(scan["nodes"])
+    scan["peers"] = _peers(scan["nodes"], settings["ignore"])
     scan["nodes"].sort(key=lambda n: (n.get("role", ""), n.get("hostname", "")))
     scan["finished_at"] = _now()
-    if store.get_cluster(cid):  # the cluster may have been deleted mid-scan
+    cluster = store.get_cluster(cid)
+    if cluster:  # the cluster may have been deleted mid-scan
+        _notify_changes(cluster, store.latest(cid), scan)
         store.add_scan(cid, scan)
     log.info("scan %s finished: %d nodes, error=%s", cid, len(scan["nodes"]), scan["error"])
     return scan

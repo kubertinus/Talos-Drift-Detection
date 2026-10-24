@@ -63,20 +63,30 @@ def roles_and_groups(id_claims: dict, access_claims: dict) -> tuple[set[str], se
     return roles, groups
 
 
-def is_allowed(roles: set[str], groups: set[str]) -> bool:
-    if not (config.OIDC_ALLOWED_ROLES or config.OIDC_ALLOWED_GROUPS):
+def _matches(roles: set[str], groups: set[str], want_roles: list[str], want_groups: list[str]) -> bool:
+    if not (want_roles or want_groups):
         return True
-    allowed_groups = {g.lstrip("/") for g in config.OIDC_ALLOWED_GROUPS}
-    return bool(roles & set(config.OIDC_ALLOWED_ROLES) or groups & allowed_groups)
+    return bool(roles & set(want_roles) or groups & {g.lstrip("/") for g in want_groups})
 
 
-async def handle_callback(request: Request) -> tuple[str, str, str | None]:
-    """Finish the login; returns (user id, display name, id token) or raises AccessDenied / OAuthError."""
+def is_allowed(roles: set[str], groups: set[str]) -> bool:
+    return _matches(roles, groups, config.OIDC_ALLOWED_ROLES, config.OIDC_ALLOWED_GROUPS)
+
+
+def is_operator(roles: set[str], groups: set[str]) -> bool:
+    """May change things; without OIDC_OPERATOR_ROLES/GROUPS everyone who may log in."""
+    return _matches(roles, groups, config.OIDC_OPERATOR_ROLES, config.OIDC_OPERATOR_GROUPS)
+
+
+async def handle_callback(request: Request) -> tuple[str, str, str, bool, str | None]:
+    """Finish the login; returns (user id, username, display name, operator, id token)
+    or raises AccessDenied / OAuthError."""
     token = await oauth.provider.authorize_access_token(request)
     id_claims = dict(token.get("userinfo") or {})
     if not id_claims.get("sub"):
         raise OAuthError(description="no ID token in response")
-    if config.OIDC_ALLOWED_ROLES or config.OIDC_ALLOWED_GROUPS:
+    roles, groups = set(), set()
+    if config.OIDC_ALLOWED_ROLES or config.OIDC_ALLOWED_GROUPS or config.OIDC_OPERATOR_ROLES or config.OIDC_OPERATOR_GROUPS:
         roles, groups = roles_and_groups(id_claims, await _access_claims(token))
         if not is_allowed(roles, groups):
             name = id_claims.get("preferred_username") or id_claims["sub"]
@@ -84,7 +94,7 @@ async def handle_callback(request: Request) -> tuple[str, str, str | None]:
             raise AccessDenied(name)
     name = id_claims.get("preferred_username") or id_claims.get("email") or id_claims["sub"]
     display = id_claims.get("name") or name
-    return f"oidc:{id_claims['sub']}", display, token.get("id_token")
+    return f"oidc:{id_claims['sub']}", name, display, is_operator(roles, groups), token.get("id_token")
 
 
 async def logout_url(request: Request, id_token: str | None) -> str | None:

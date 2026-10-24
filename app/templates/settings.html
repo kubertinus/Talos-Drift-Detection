@@ -117,8 +117,10 @@
 </section>
 
 <section id="patches" class="mb-10">
-  <h2 class="text-lg font-semibold text-white">Patches</h2>
+  <h2 class="text-lg font-semibold text-white">Patches (baseline only)</h2>
   <p class="text-sm text-slate-400 mb-4">
+    Register patches that are <strong>already applied</strong> to the cluster; this changes no node. To change nodes,
+    use the <a href="/c/{{ cluster.id }}/patches" class="text-orange-300 hover:underline">Patches tab</a>.
     Patches deliberately applied to the cluster. They are applied to the baseline with <code>talosctl machineconfig patch</code>,
     so only unplanned differences remain as drift. Order: all nodes &rarr; role &rarr; specific node,
     and within a group from top to bottom. Stored encrypted.
@@ -146,7 +148,7 @@
           </td>
           <td class="p-3">
             <form method="post" action="/settings/{{ cluster.id }}/patches/{{ p.id }}/target" class="flex gap-2 items-center"
-                  x-data="{ t: '{{ 'node' if p.target.startswith('node:') else p.target }}' }">
+                  x-data="{ t: '{{ 'node' if p.target.startswith('node') else p.target }}' }">
               <input type="hidden" name="csrf" value="{{ csrf }}">
               <select name="target" x-model="t" @change="if (t !== 'node') $el.form.submit()" class="input py-1 text-xs w-auto">
                 <option value="all">All nodes</option>
@@ -154,16 +156,18 @@
                 <option value="worker">Workers</option>
                 <option value="node">Specific node</option>
               </select>
-              <input x-show="t === 'node'" name="node_name" list="known-nodes" value="{{ p.target.removeprefix('node:') if p.target.startswith('node:') else '' }}"
+              <input x-show="t === 'node'" name="node_name" list="known-nodes" value="{{ p.target.split(':', 1)[1] if p.target.startswith('node') else '' }}"
                      class="input py-1 text-xs w-40" placeholder="hostname or IP" @change="$el.form.submit()">
             </form>
           </td>
           <td class="p-3 font-mono text-xs text-slate-400">{{ (p.fingerprint ~ '…') if p.fingerprint else '—' }}</td>
           <td class="p-3 text-xs text-slate-400"><time class="rel" datetime="{{ p.uploaded }}">{{ p.uploaded }}</time></td>
           <td class="p-3 text-right">
-            <form method="post" action="/settings/{{ cluster.id }}/patches/{{ p.id }}/delete" onsubmit="return confirmSubmit(event, 'Delete {{ p.name }}?')">
+            <form method="post" action="/settings/{{ cluster.id }}/patches/{{ p.id }}/delete" class="space-y-1"
+                  onsubmit="return confirmSubmit(event, 'Remove {{ p.name }} from the baseline only?' + (this.delete_file && this.delete_file.checked ? '\nThe file is deleted from the base folder too.' : '') + '\n\nThe nodes keep it and will show drift. To remove it from the nodes as well, use Delete in the Patches tab of this cluster.')">
               <input type="hidden" name="csrf" value="{{ csrf }}">
-              <button class="text-xs text-rose-400 hover:text-rose-300">Delete</button>
+              <button class="text-xs text-rose-400 hover:text-rose-300" title="Removes it from the baseline only; use the Patches tab to remove it from the nodes">Remove from baseline</button>
+              {% if p.path %}<label class="flex items-center justify-end gap-1 text-[11px] text-slate-500 whitespace-nowrap"><input type="checkbox" name="delete_file" value="1" class="accent-rose-500"> and delete the file</label>{% endif %}
             </form>
           </td>
         </tr>
@@ -184,8 +188,10 @@
         <input x-model="q" class="input text-xs mb-2" placeholder="Filter, e.g. patch/">
         <div class="max-h-64 overflow-y-auto rounded-lg border border-slate-800 divide-y divide-slate-800/60">
           {% for hf in patch_candidates %}
-          <label class="flex items-center gap-3 px-3 py-1.5 text-xs font-mono hover:bg-slate-800/50 cursor-pointer" x-show="!q || {{ hf | tojson | forceescape }}.toLowerCase().includes(q.toLowerCase())">
-            <input type="checkbox" name="paths" value="{{ hf }}" class="accent-orange-500"> {{ hf }}
+          {% set is_linked = hf in linked_patches %}
+          <label class="flex items-center gap-3 px-3 py-1.5 text-xs font-mono {{ 'text-slate-500' if is_linked else 'hover:bg-slate-800/50 cursor-pointer' }}" x-show="!q || {{ hf | tojson | forceescape }}.toLowerCase().includes(q.toLowerCase())">
+            <input type="checkbox" name="paths" value="{{ hf }}" class="accent-orange-500" {% if is_linked %}disabled{% endif %}> {{ hf }}
+            {% if is_linked %}<span class="badge badge-muted font-sans ml-auto">linked</span>{% endif %}
           </label>
           {% else %}
           <div class="px-3 py-2 text-xs text-slate-500">{{ 'No (new) files in the base folder.' if base_ok else 'Choose a base folder first.' }}</div>

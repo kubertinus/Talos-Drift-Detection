@@ -16,6 +16,7 @@
     {% if n.vip %}<span class="text-sky-300">VIP {{ n.vip }}</span>{% endif %}
     {% if n.drift_since %}<span>drift since <time class="rel" datetime="{{ n.drift_since }}">{{ n.drift_since }}</time></span>{% endif %}
     {% if n.outlier %}<span class="text-rose-300">differs from majority</span>{% endif %}
+    {% if n.peer_odd %}<span class="text-amber-300">differs from other {{ 'control planes' if n.role == 'controlplane' else 'workers' }} ({{ n.peer_odd }})</span>{% endif %}
   </div>
   {% if n.error %}<div class="mt-2 text-xs text-rose-300/80 truncate" title="{{ n.error }}">{{ n.error }}</div>{% endif %}
 </a>

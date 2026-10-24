@@ -3,6 +3,7 @@
 Web app that compares the live machine config of every Talos node with the original
 `controlplane.yaml` / `worker.yaml` and shows the configuration drift per node,
 split into **control planes** and **workers**, for **multiple clusters** at once.
+It can also edit patches and apply them to the nodes of a cluster.
 
 ![Overview of all clusters with per-node status](docs/overview.png)
 
@@ -13,7 +14,15 @@ split into **control planes** and **workers**, for **multiple clusters** at once
 - Detail page with a table of differing paths and a side-by-side YAML diff
 - View a node's full live config and save it as YAML
 - "Differs from majority": nodes of the same role that drift differently from the rest
+- Activity log: who changed what (settings, files, patches, rollouts, clusters, certificates,
+  logins), also as JSON lines in the container log (see *Activity log*)
+- New node tab: generate the machine config for an extra control plane or worker from the baseline
+  (see *Adding a node*)
+- Consistency tab: differences between nodes of the same role, also when a node-specific patch
+  explains them (see *Consistency between nodes*)
 - Patches (strategic merge, JSON6902, multi-document) per cluster, role or node included in the baseline
+- Patches tab: edit or write a patch, validate it with a dry run per node, and apply it node by node
+  (see *Applying patches*)
 - Ignore rules for paths that legitimately differ per node (hostname, interfaces, install disk, …)
 - Periodic scan (every 15 min by default) and a "Scan now" button
 
@@ -57,7 +66,9 @@ Nothing is needed from the clusters to the app.
 - After upload these files can no longer be viewed or downloaded; the UI only shows a SHA-256
   fingerprint.
 - An uploaded talosconfig only exists as plaintext during a scan, as a 0600 file on a tmpfs
-  (`/tmp`). Linked files stay on the host (read-only mount); the app does not copy them.
+  (`/tmp`). Linked files stay on the host; the app does not copy them. The mount is writable so
+  the Patches tab can save edited or new patch files in the base folder and delete the file of a
+  deleted patch; nothing else is written or deleted.
 - Secrets in configs (tokens, CA keys, encryption secrets, anything ending in
   `key`/`token`/`secret`) are replaced with `***sha256:xxxxxxxx` before comparing. In the
   differences and the diff you therefore see *that* a secret differs, not its value.
@@ -75,8 +86,9 @@ Nothing is needed from the clusters to the app.
 
 > **Permissions:** the machine config is a *sensitive* resource in Talos. A talosconfig with only
 > `os:reader` cannot read it; the app needs a talosconfig with `os:admin`. Whoever administers the
-> app therefore effectively has admin access to the clusters. Restrict network access to the app
-> accordingly (e.g. only from the management network or via VPN).
+> app therefore effectively has admin access to the clusters, and anyone who can log in can apply
+> patches to nodes from the Patches tab. Restrict network access to the app accordingly (e.g. only
+> from the management network or via VPN).
 
 ## Getting started
 
@@ -110,19 +122,23 @@ If your Talos files are on the same machine as Docker, set this in `.env`:
 CONFIG_HOST_DIR=/Users/you   # e.g. your home folder
 ```
 
-That folder is mounted read-only at `/configs`. Under **Settings → Base folder** you use a folder
+That folder is mounted at `/configs`. Under **Settings → Base folder** you use a folder
 picker to choose your cluster's folder (folders containing a talosconfig or controlplane.yaml are
 marked), and from there you choose the files and patches. References are stored relative to the
 base folder: if you switch to another cluster with the same layout (`_out/…`, `patch/…`), they keep
 working.
 
 On Linux the real file permissions apply: the container runs as uid/gid `10001` and must be able
-to read the folder. A talosconfig is `600` by default, so for example give the group read access:
+to read the folder. A talosconfig is `600` by default, so for example give the group read access.
+To save patches from the Patches tab it also needs write access to the patch files and folders:
 
 ```bash
 sudo chgrp -R 10001 /path/to/clusters && sudo chmod -R g+rX /path/to/clusters
+sudo chmod -R g+w /path/to/clusters/*/patch   # only if you edit patches in the app
 # or, without changing the group: sudo setfacl -R -m u:10001:rX /path/to/clusters
 ```
+
+Existing files are rewritten in place, so they keep their owner and permissions.
 
 The app rereads linked files on every scan, so changes on the host are picked up automatically.
 Hidden files and folders (`.ssh`, `.talos`, …) are never shown or read, and paths outside the base
@@ -146,12 +162,15 @@ encrypted in the volume.
 | `HTTPS_PORT` / `HTTP_PORT` | `443` / `80` | Host ports for HTTPS and the redirect (+ Let's Encrypt HTTP-01) |
 | `TLS_HOSTNAMES` | – | Extra names in the initial self-signed certificate |
 | `TLS_ENABLED` | `true` | `false` behind a TLS-terminating reverse proxy |
-| `CONFIG_HOST_DIR` | `./configs` | Host folder mounted read-only at `/configs`; you choose the base folder within it in the UI |
+| `CONFIG_HOST_DIR` | `./configs` | Host folder mounted at `/configs`; you choose the base folder within it in the UI |
 | `TALOSCTL_VERSION` / `LEGO_VERSION` | `latest` | Version in the image; `latest` = newest stable release, or a tag such as `v1.11.5` to pin |
 | `SCAN_INTERVAL` | `900` | Default scan interval in seconds for new clusters (adjustable per cluster) |
 | `SCAN_CONCURRENCY` | `5` | Number of nodes scanned at the same time |
 | `NODE_TIMEOUT` | `30` | Timeout per talosctl call in seconds |
 | `HISTORY_SIZE` | `50` | Number of scans per cluster kept in the history |
+| `OIDC_OPERATOR_ROLES` / `OIDC_OPERATOR_GROUPS` | – | Who may change things; empty = everyone who may log in |
+| `NOTIFY_WEBHOOK_URLS` | – | Webhooks for drift, unreachable nodes and rollouts (see *Notifications and metrics*) |
+| `METRICS_TOKEN` | – | Bearer token for `/metrics`; metrics are off without it |
 
 ### Image: architectures and tag
 
@@ -323,7 +342,15 @@ OIDC_ISSUER=https://sso.example.com/realms/infra
 OIDC_CLIENT_ID=talos-config-manager
 OIDC_CLIENT_SECRET=...           # or OIDC_CLIENT_SECRET_FILE
 OIDC_ALLOWED_ROLES=talos-config-manager   # recommended; without a role/group anyone in the realm gets in
+OIDC_OPERATOR_ROLES=talos-operator        # optional: only these may change things
 ```
+
+**Viewers and operators.** `OIDC_ALLOWED_ROLES`/`GROUPS` decide who may log in;
+`OIDC_OPERATOR_ROLES`/`OIDC_OPERATOR_GROUPS` decide who may *change* things: settings, files,
+patches, rollouts, syncs, rollbacks, ignore rules, clusters and certificates. Everyone else is a
+viewer: they can look and start a scan, see a blue *Read-only* bar, and every attempt to change
+something is refused (HTTP 403) and recorded as `access.denied`. Without operator roles everyone
+who may log in is an operator; the shared admin password is always an operator.
 
 The login screen then shows **Log in with Keycloak** (different text: `OIDC_PROVIDER_NAME`). If you
 leave out `ADMIN_PASSWORD`, that is the only way to log in. Access can be restricted by roles
@@ -331,8 +358,73 @@ leave out `ADMIN_PASSWORD`, that is the only way to log in. Access can be restri
 (`OIDC_ALLOWED_GROUPS`: the `groups` claim, which requires a *Group Membership* mapper in
 Keycloak). Logging out also ends the Keycloak session.
 
+Every action is recorded with the user's stable id (`sub`), username and display name (see
+*Activity log*). Actions done with the shared admin password all show as *admin (password)*; to
+trace every action to a person, use OIDC only.
+
 The app and the browser must both be able to reach the Keycloak URL. If the app runs behind a
 reverse proxy, make sure it passes on `X-Forwarded-Proto`/`Host`, or set `OIDC_REDIRECT_URI`.
+
+## Activity log
+
+**Settings → Activity** shows who changed what, across all clusters, newest first, filterable by
+cluster and user. Each entry has the time, the user (display name, username, login method, stable
+id and IP address), the action, the cluster and the details, with old → new values where a setting
+changed. Recorded are:
+
+- logins, logouts, failed and refused logins;
+- clusters created, renamed or deleted;
+- talosconfig / `controlplane.yaml` / `worker.yaml` uploaded, linked or removed (with a SHA-256
+  fingerprint, never the content), and the base folder;
+- patches uploaded, linked, retargeted, reordered or removed from the baseline under **Settings**;
+- ignore rules, node list, discovery node and scan interval;
+- every rollout from the Patches tab (start and result per node; the patch text itself is in the
+  cluster's patch history);
+- the HTTPS certificate and Let's Encrypt settings (without DNS provider credentials).
+
+Every entry is also written to the container log as one JSON line from the logger `audit`
+(`docker compose logs | grep '"audit"'`), so it can be shipped to a central log system. The log
+keeps the last 5000 entries, stored encrypted like everything else.
+
+### Adding a node
+
+The **New node** tab of a cluster generates the machine config for an extra control plane or
+worker: the role config with every patch for all nodes and for that role, plus a node-specific
+patch for the new node. Choose an existing node of the same role to copy its node patch from; its
+hostname and IP address are replaced by the new ones (check interfaces, routes and disks
+yourself). The result is checked with `talosctl validate` (metal, cloud or container) and can be
+downloaded once, within 10 minutes; a masked preview is shown. Then boot the machine from the
+Talos ISO and run `talosctl apply-config --insecure -n <ip> --file <hostname>.yaml`.
+
+Optionally the node patch is registered in the baseline right away (as `patch/<hostname>.yaml`
+with target `node:<hostname>`), so the new node is *in sync* as soon as it joins.
+
+Generating is refused while the cluster has unplanned drift (nodes in *drift*, *patch error* or
+*no baseline*, or unplanned differences between nodes of a role), so a new node never starts from
+a config the running nodes do not have. It needs an operator role, because the file contains the
+cluster secrets; generating and downloading are recorded in the activity log (without content).
+
+## Notifications and metrics
+
+**Webhooks.** Set `NOTIFY_WEBHOOK_URLS` (comma separated) to get a JSON POST for: nodes that became
+*drift*, *unreachable*, *patch error* or *no baseline* (only on change, not every scan), nodes back
+in sync, scan errors, new unplanned differences between nodes of one role, and rollouts that
+finished, failed, paused (canary) or were interrupted. The payload has a `text` line, which Slack,
+Mattermost and Teams workflows show, plus `event`, `cluster`, `time` and details.
+
+**Prometheus.** Set `METRICS_TOKEN` and scrape `/metrics` on the HTTPS port:
+
+```yaml
+- job_name: talos-config-manager
+  scheme: https
+  authorization: {credentials: <METRICS_TOKEN>}
+  tls_config: {insecure_skip_verify: true}   # only with the self-signed certificate
+  static_configs: [{targets: ["drift.example.com"]}]
+```
+
+Metrics: `talos_cm_nodes{cluster,role,status}`, `talos_cm_node_drift_paths{cluster,node,role}`,
+`talos_cm_unplanned_differences{cluster}`, `talos_cm_last_scan_timestamp_seconds{cluster}` and
+`talos_cm_rollouts{cluster,result}`.
 
 ## How drift is determined
 
@@ -367,6 +459,96 @@ nodes. Patches are stored encrypted like everything else.
 
 A patch that is in the baseline but has not been applied to the node shows up as drift.
 
+### Applying patches
+
+The **Patches** tab of a cluster lists its patches. Edit one, or write a new one, as text; changes
+are only saved when they are applied to the cluster. The cluster name is shown in a coloured
+banner (a different colour per cluster) and again in the confirmation.
+
+1. **Target**: all nodes, all control planes, all workers, or a selection of nodes from the latest
+   scan.
+2. **Mode** (`talosctl apply-config --mode`): `no-reboot` (default; refused if the change needs a
+   reboot), `auto` (reboots when needed), `staged` (takes effect at the next reboot) or `try`
+   (Talos reverts it after 1 minute; not saved).
+3. **Validate**: YAML check, then for every selected node its full desired config is built: the
+   role config (`controlplane.yaml` / `worker.yaml`) with all patches that apply to that node,
+   including the new version of this one. Wherever an ignore rule applies (hostname, addresses,
+   install disk, …) the node keeps its own live value; empty defaults the node does not have are
+   left out. That config is dry-run with `talosctl apply-config --dry-run`. Per node you see what
+   Talos would do (e.g. *without a reboot*) and a diff between the live and the new config, with
+   secrets masked (talosctl's own diff shows them in plain text, so it is not displayed).
+4. **Apply**: only a successful validation can be applied, and only unchanged: editing the text,
+   target or mode afterwards requires validating again, and a validation expires after
+   15 minutes. Workers go first, control planes last, one node at a time. Per node the app first
+   checks that the node's live config is still the one it validated against, runs the dry run
+   **again**, then applies the config, waits until the node reports ready, and checks that the node
+   now matches its baseline. The rollout stops at the first error.
+
+Before the next node, a control plane must report a healthy etcd and every node must be *Ready* in
+Kubernetes (as Talos reports it); otherwise the rollout stops. Two options at validation:
+
+- **Pause after the first node** (canary): the rollout stops after one node with *Continue* /
+  *Stop*. Stopping leaves the baseline unchanged; use *Revert succeeded nodes* for the first node.
+- **Skip unreachable nodes**: nodes that are unreachable in the latest scan or during the dry run
+  are left out (and listed) instead of blocking the rollout; they show drift until you sync them.
+
+A validation is refused when anything the node configs are built from changed in the meantime
+(any patch, its order or target, `controlplane.yaml`/`worker.yaml`), and file permissions for a
+linked patch are checked before any node changes. The masked diff warns when Talos reports changes
+it does not show. The rollout state is kept on disk: after a restart halfway, the rollout shows as
+*interrupted* with the affected nodes. After a failed, stopped or interrupted rollout, *Revert
+succeeded nodes* prepares a sync of the nodes it already changed.
+
+Nodes are not patched in place on purpose: merging a patch into the running config appends to
+lists, so editing a patch (e.g. a registry mirror endpoint) would leave the old value behind.
+Applying the full desired config replaces it. This also reverts any *other* drift on the node,
+which the dry-run diff shows before you apply.
+
+After a successful rollout the patch is saved (a linked file is overwritten, a new patch is stored
+as a file in the base folder or encrypted in the app), its target in the baseline becomes the chosen
+target, and the cluster is rescanned. Every rollout, with user, patch text, mode and result per
+node, is kept in the history at the bottom of the tab.
+
+If you narrow the target of an existing patch (e.g. from all control planes to one node), the
+nodes that fall outside it are part of the rollout too: they get their config without the patch,
+so it is really removed from them instead of lingering as drift.
+
+**Deleting a patch** (*Delete this patch…* in the editor) works the same way: every node the patch
+applies to gets its baseline without it, with a dry run, a diff per node and the same checks. Only
+when that succeeded on all of them is the patch removed from the baseline, and a linked patch file
+is deleted from the base folder; its content stays in the history. In `try` mode nothing is
+removed. *Remove from baseline* under **Settings → Patches** only drops it from the baseline, so the
+nodes keep it and show drift.
+
+**Sync nodes to baseline** brings selected nodes back to their baseline without changing any
+patch, for example to undo drift. Drifting nodes are preselected; the same dry run and checks
+apply.
+
+**Rolling back** (*Roll back…* in the history) undoes one rollout: an added patch is deleted
+again, an edit goes back to the previous text and target, a deleted patch comes back (with its
+target, its place in the patch order and, for a linked patch, its file). The nodes follow, with
+the same dry run, confirmation and checks, and the rollback is itself recorded, so it can be
+rolled back too. It is only offered while the patch is still exactly as that rollout left it;
+otherwise roll back the newer change first (the greyed-out button says why). A sync, a failed
+rollout and rollouts from before this feature cannot be rolled back.
+
+### Consistency between nodes
+
+Drift compares each node with *its own* baseline, so a patch for one node makes that node "in
+sync" even though it now differs from the other nodes of its role. The **Consistency** tab
+compares the live configs of the control planes with each other, and of the workers with each
+other, path by path, with a column per node. Ignore rules apply here too, so hostnames, IP
+addresses and the install disk do not count.
+
+- **unplanned**: the nodes differ and no patch explains it. The odd values (those that differ from
+  the majority) are highlighted.
+- **via patch**: the difference comes from a patch that targets only some of the nodes, and every
+  node matches its own baseline there. Hidden by default; choose *All* to see them.
+
+For a value that may legitimately differ per node, click *ignore* to add an ignore rule. Unplanned
+differences are counted on the cluster card in the overview, on the tab and on the affected node
+cards. The Patches tab warns when a patch selection covers only part of a role.
+
 ### Ignore rules
 
 Ignore rules use dot notation, list indexes like `[0]` and documents like `Kind` or `Kind[name]`.
@@ -386,6 +568,9 @@ If something differs per node because you deliberately set it up that way, add i
 patch; only use an ignore rule for values you do not want to monitor.
 
 ## Development
+
+The GitHub workflow runs the tests (`pytest`, in the same Python image as the app) on every pull
+request and before every image build.
 
 ```bash
 python3 -m venv .venv && .venv/bin/pip install -r requirements-dev.txt

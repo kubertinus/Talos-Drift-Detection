@@ -15,6 +15,7 @@
   {% elif node.status == 'patch-error' %}<span class="badge badge-err">patch error</span>
   {% else %}<span class="badge badge-muted">no baseline</span>{% endif %}
   {% if node.outlier %}<span class="badge badge-err">differs from majority</span>{% endif %}
+  {% if node.peer_odd %}<a href="/c/{{ cluster.id }}/consistency" class="badge badge-warn">differs from other {{ 'control planes' if node.role == 'controlplane' else 'workers' }} ({{ node.peer_odd }})</a>{% endif %}
 </div>
 <dl class="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-8 text-sm">
   <div class="card p-3"><dt class="text-slate-400 text-xs">Address</dt><dd class="font-mono">{{ node.address }}</dd></div>
@@ -54,7 +55,7 @@
           <td class="p-3"><span class="badge {{ {'changed':'badge-warn','added':'badge-ok','removed':'badge-err'}[c.type] }}">{{ c.type }}</span></td>
           <td class="p-3"><pre class="val">{{ c.baseline | tojson(indent=1) if c.baseline is not none else '—' }}</pre></td>
           <td class="p-3"><pre class="val">{{ c.actual | tojson(indent=1) if c.actual is not none else '—' }}</pre></td>
-          <td class="p-3 text-right"><button class="text-xs text-slate-400 hover:text-white whitespace-nowrap" onclick="ignorePath({{ c.path | tojson | forceescape }})">ignore</button></td>
+          <td class="p-3 text-right"><button class="op-only text-xs text-slate-400 hover:text-white whitespace-nowrap" onclick="ignorePath({{ c.path | tojson | forceescape }})">ignore</button></td>
         </tr>
         {% endfor %}
       </tbody>

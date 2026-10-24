@@ -1,0 +1,62 @@
+{% extends "settings_layout.html" %}
+{% block title %}Activity · Talos Config Manager{% endblock %}
+{% macro value(v) -%}
+  {%- if v is none %}<span class="text-slate-500">—</span>
+  {%- elif v is mapping %}{% for k, x in v.items() %}{{ k }}: {{ value(x) }}{{ ', ' if not loop.last }}{% endfor %}
+  {%- elif v is iterable and v is not string %}{{ v | join(', ') if v else '(none)' }}
+  {%- else %}{{ v }}{% endif -%}
+{%- endmacro %}
+{% block settings %}
+<h1 class="text-2xl font-semibold text-white mb-1">Activity</h1>
+<p class="text-sm text-slate-400 mb-6">Who changed what, across all clusters: settings, files, patches, rollouts, clusters, certificates and logins. Every entry is also written to the container log as a JSON line (logger <code>audit</code>).</p>
+
+<form method="get" class="flex flex-wrap items-end gap-3 mb-4 text-sm">
+  <label class="block">
+    <span class="text-xs text-slate-400">Cluster</span>
+    <select name="cluster" class="input mt-1 w-auto py-1.5" onchange="this.form.submit()">
+      <option value="">All clusters</option>
+      {% for id, name in log_clusters %}<option value="{{ id }}" {% if id == filter_cluster %}selected{% endif %}>{{ name }}</option>{% endfor %}
+    </select>
+  </label>
+  <label class="block">
+    <span class="text-xs text-slate-400">User</span>
+    <select name="user" class="input mt-1 w-auto py-1.5" onchange="this.form.submit()">
+      <option value="">All users</option>
+      {% for u in users %}<option value="{{ u.id }}" {% if u.id == filter_user %}selected{% endif %}>{{ label(u) }}</option>{% endfor %}
+    </select>
+  </label>
+  {% if filter_cluster or filter_user %}<a href="/settings/activity" class="text-xs text-slate-400 hover:text-white pb-2">Clear filters</a>{% endif %}
+</form>
+
+{% if entries %}
+<div class="card overflow-x-auto">
+  <table class="w-full text-sm">
+    <thead class="text-left text-xs uppercase text-slate-400 border-b border-slate-800">
+      <tr><th class="p-3">When</th><th class="p-3">User</th><th class="p-3">Action</th><th class="p-3">Cluster</th><th class="p-3">Details</th></tr>
+    </thead>
+    <tbody>
+      {% for e in entries %}
+      <tr class="border-b border-slate-800/60 align-top">
+        <td class="p-3 text-xs text-slate-400 whitespace-nowrap"><time class="rel" datetime="{{ e.time }}">{{ e.time }}</time></td>
+        <td class="p-3 text-xs">
+          <div class="text-slate-200">{{ label(e.actor) }}</div>
+          <div class="text-slate-500 font-mono" title="Stable user id">{{ e.actor.id }}{% if e.actor.ip %} · {{ e.actor.ip }}{% endif %}</div>
+        </td>
+        <td class="p-3"><span class="badge {{ 'badge-err' if e.action.endswith(('failed', 'denied', 'delete')) else 'badge-warn' if e.action.startswith(('rollout', 'patch', 'file', 'certificate')) else 'badge-muted' }} font-mono">{{ e.action }}</span></td>
+        <td class="p-3 text-xs whitespace-nowrap">{% if e.cluster %}<a href="/c/{{ e.cluster.id }}" class="hover:text-white">{{ e.cluster.name }}</a>{% else %}<span class="text-slate-500">—</span>{% endif %}</td>
+        <td class="p-3 text-xs text-slate-300">
+          {% for k, v in e.details.items() %}
+          <div><span class="text-slate-500">{{ k }}:</span>
+            {% if v is mapping and 'old' in v and 'new' in v %}<span class="text-rose-300 line-through">{{ value(v.old) }}</span> → <span class="text-emerald-300">{{ value(v.new) }}</span>
+            {% else %}{{ value(v) }}{% endif %}</div>
+          {% endfor %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% else %}
+<div class="text-sm text-slate-500">No activity recorded{% if filter_cluster or filter_user %} for this filter{% endif %} yet.</div>
+{% endif %}
+{% endblock %}

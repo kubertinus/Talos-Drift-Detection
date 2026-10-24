@@ -119,6 +119,7 @@ def add_scan(cid: str, scan: dict) -> None:
     h.append(scan)
     # Only the latest scan keeps full diffs; older entries are trimmed to a summary.
     for old in h[:-1]:
+        old.pop("peers", None)
         for n in old["nodes"]:
             n.pop("diff", None)
             n.pop("changes", None)

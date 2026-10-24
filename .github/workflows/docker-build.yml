@@ -9,6 +9,8 @@ on:
         default: ''
   push:
     tags: ['v*']
+  # Pull requests only run the tests; nothing is built or pushed.
+  pull_request:
 
 permissions:
   contents: read
@@ -18,7 +20,20 @@ env:
   VERSION: ${{ inputs.tag || (github.ref_type == 'tag' && github.ref_name) || '' }}
 
 jobs:
+  test:
+    runs-on: ubuntu-latest
+    # Same Python as the image (see PYTHON_VERSION in the Dockerfile).
+    container: python:3.15-slim
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.VERSION || github.ref }}
+      - run: pip install --no-cache-dir -r requirements-dev.txt
+      - run: python -m pytest -q
+
   docker:
+    needs: test
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     steps:
       # A manual run with a tag builds that tag's code, using this (newer) workflow.

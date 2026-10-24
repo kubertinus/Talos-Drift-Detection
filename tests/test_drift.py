@@ -1,3 +1,5 @@
+import yaml
+
 from app import drift
 
 BASELINE = """\
@@ -156,3 +158,122 @@ def test_vips_from_new_and_legacy_config():
         "---\napiVersion: v1alpha1\nkind: Layer2VIPConfig\nname: 10.0.0.9\nlink: eth0\n"
     )
     assert drift.vips(docs) == {"10.0.0.5", "10.0.0.9"}
+
+
+def _cfg(hostname, extra=""):
+    return f"version: v1alpha1\nmachine:\n  type: worker\n  network: {{hostname: {hostname}}}\n  token: abc\n{extra}"
+
+
+def test_peer_differences_unplanned_and_majority():
+    base = _cfg("x")
+    nodes = [
+        {"hostname": "w-1", "actual": _cfg("w-1", "  sysctls: {a: '1'}\n"), "baseline": base},
+        {"hostname": "w-2", "actual": _cfg("w-2", "  sysctls: {a: '1'}\n"), "baseline": base},
+        {"hostname": "w-3", "actual": _cfg("w-3", "  sysctls: {a: '2'}\n"), "baseline": base},
+    ]
+    diffs = drift.peer_differences(nodes, drift.DEFAULT_IGNORE)
+    assert [d["path"] for d in diffs] == ["machine.sysctls.a"]
+    d = diffs[0]
+    assert not d["intended"] and d["odd"] == ["w-3"] and d["values"] == {"w-1": "1", "w-2": "1", "w-3": "2"}
+
+
+def test_peer_differences_intended_via_patch_and_absent():
+    base, patched = _cfg("x"), _cfg("x", "  sysctls: {a: '1'}\n")
+    nodes = [
+        {"hostname": "w-1", "actual": _cfg("w-1", "  sysctls: {a: '1'}\n"), "baseline": patched},
+        {"hostname": "w-2", "actual": _cfg("w-2"), "baseline": base},
+    ]
+    d = drift.peer_differences(nodes, drift.DEFAULT_IGNORE)[0]
+    assert d["intended"] and d["absent"] == ["w-2"] and d["values"]["w-2"] is None
+    assert sorted(d["odd"]) == ["w-1", "w-2"]  # no strict majority with two nodes
+    # The same difference without a patch explaining it is unplanned.
+    nodes[0]["baseline"] = base
+    assert not drift.peer_differences(nodes, drift.DEFAULT_IGNORE)[0]["intended"]
+
+
+def test_peer_differences_respects_ignore_and_masks_secrets():
+    nodes = [
+        {"hostname": "w-1", "actual": _cfg("w-1"), "baseline": None},
+        {"hostname": "w-2", "actual": _cfg("w-2").replace("token: abc", "token: xyz"), "baseline": None},
+    ]
+    diffs = drift.peer_differences(nodes, drift.DEFAULT_IGNORE)
+    assert [d["path"] for d in diffs] == ["machine.token"]
+    assert all(v.startswith("***sha256:") for v in diffs[0]["values"].values())
+    assert drift.peer_differences(nodes, [*drift.DEFAULT_IGNORE, "machine.token"]) == []
+
+
+def test_keep_ignored_takes_node_values_for_ignored_paths():
+    desired = (
+        "version: v1alpha1\nmachine:\n  network:\n    hostname: base\n    interfaces:\n"
+        "      - interface: eth0\n        addresses: [10.0.0.9/24]\n        mtu: 9000\n"
+        "  install: {disk: /dev/sda}\n  sysctls: {a: '1'}\n"
+        "---\napiVersion: v1alpha1\nkind: HostnameConfig\nhostname: base\n"
+    )
+    actual = (
+        "version: v1alpha1\nmachine:\n  network:\n    hostname: w-1\n    interfaces:\n"
+        "      - interface: eth0\n        addresses: [10.0.0.21/24]\n        mtu: 1500\n"
+        "  install: {disk: /dev/nvme0n1}\n  sysctls: {a: '0', b: '2'}\n"
+        "---\napiVersion: v1alpha1\nkind: HostnameConfig\nhostname: w-1\n"
+    )
+    docs = list(yaml.safe_load_all(drift.keep_ignored(desired, actual, drift.DEFAULT_IGNORE)))
+    machine = docs[0]["machine"]
+    assert machine["network"]["hostname"] == "w-1" and machine["install"]["disk"] == "/dev/nvme0n1"
+    assert machine["network"]["interfaces"][0] == {"interface": "eth0", "addresses": ["10.0.0.21/24"], "mtu": 9000}
+    assert machine["sysctls"] == {"a": "1"}  # not ignored: the baseline wins
+    assert docs[1]["hostname"] == "w-1"
+
+
+def test_keep_ignored_drops_ignored_values_the_node_lacks():
+    """Talos moves cluster.proxy into a KubeProxyConfig document; the node has no cluster.proxy."""
+    desired = "version: v1alpha1\ncluster:\n  proxy: {disabled: true}\n  network: {cni: {name: none}, dnsDomain: x}\n"
+    actual = "version: v1alpha1\ncluster:\n  network: {dnsDomain: x}\n"
+    rules = ["cluster.proxy.disabled", "cluster.network.cni.name"]
+    doc = yaml.safe_load(drift.keep_ignored(desired, actual, rules))
+    assert doc["cluster"] == {"network": {"dnsDomain": "x"}}
+
+
+def test_keep_ignored_drops_only_empty_defaults_the_node_lacks():
+    desired = (
+        "version: v1alpha1\ncluster:\n  network: {dnsDomain: '', podSubnets: []}\n  etcd: {x: 1}\n"
+        "machine: {kubelet: {disableManifestsDirectory: false}}\n"
+        "---\napiVersion: v1alpha1\nkind: KubeNodeConfig\nlabels: {node-role.kubernetes.io/control-plane: ''}\n"
+    )
+    actual = (
+        "apiVersion: v1alpha1\nkind: KubeNodeConfig\nlabels: {node-role.kubernetes.io/control-plane: ''}\n"
+        "---\nversion: v1alpha1\ncluster: {etcd: {x: 1}}\nmachine: {kubelet: {}}\n"
+    )
+    docs = list(yaml.safe_load_all(drift.keep_ignored(desired, actual, [])))
+    assert docs[0]["kind"] == "KubeNodeConfig"  # the node's document order
+    assert docs[0]["labels"] == {"node-role.kubernetes.io/control-plane": ""}  # "" the node has: kept
+    assert docs[1]["cluster"] == {"etcd": {"x": 1}}
+    assert docs[1]["machine"]["kubelet"]["disableManifestsDirectory"] is False
+
+
+def test_config_diff_masks_secrets():
+    cur = "version: v1alpha1\nmachine:\n  ca: {crt: abc, key: SECRETKEY}\n  sysctls: {a: '1'}\n"
+    new = cur.replace("a: '1'", "a: '2'")
+    diff = drift.config_diff(cur, new)
+    assert "SECRETKEY" not in diff and "+    a: '2'" in diff and "***sha256:" in diff
+    assert drift.config_diff(cur, cur) == ""
+
+
+LABELS = "apiVersion: v1alpha1\nkind: KubeNodeConfig\nlabels:\n  node-role.kubernetes.io/control-plane: ''\n  zone: a\n"
+
+
+def test_empty_label_values_are_real_values():
+    without = "apiVersion: v1alpha1\nkind: KubeNodeConfig\nlabels:\n  zone: a\n"
+    changes = drift.compute(LABELS, without, [])["changes"]
+    assert [(c["type"], c["path"]) for c in changes] == [("removed", "KubeNodeConfig.labels.node-role.kubernetes.io/control-plane")]
+    assert "control-plane" in drift.config_diff(LABELS, without)
+    # Empty schema fields stay noise, as before.
+    assert drift.compute("version: v1alpha1\ncluster: {network: {dnsDomain: ''}}\n", "version: v1alpha1\n", [])["changes"] == []
+
+
+def test_keep_ignored_without_taking_values_for_a_new_node():
+    desired = ("version: v1alpha1\nmachine:\n  network: {hostname: new-node}\ncluster:\n  proxy: {disabled: true}\n"
+               "  network: {cni: {name: none}, dnsDomain: ''}\n  etcd: {x: 1}\n")
+    reference = "version: v1alpha1\nmachine:\n  network: {hostname: old-node}\ncluster:\n  etcd: {x: 1}\n"
+    rules = [*drift.DEFAULT_IGNORE, "cluster.proxy.disabled", "cluster.network.cni.name"]
+    doc = yaml.safe_load(drift.keep_ignored(desired, reference, rules, take=False))
+    assert doc["machine"]["network"]["hostname"] == "new-node"  # its own value, not the reference node's
+    assert doc["cluster"] == {"etcd": {"x": 1}}

@@ -1,4 +1,5 @@
 """Normalise Talos machine configs, mask secrets and compute drift."""
+import copy
 import difflib
 import hashlib
 import json
@@ -44,12 +45,18 @@ def _doc_key(doc: dict) -> str:
     return f"{kind}[{name}]" if name else kind
 
 
-def _drop_empty(node):
+# Maps with free-form keys: there "" is a real value (e.g. the node-role label
+# `node-role.kubernetes.io/control-plane: ""`), not an unset schema field.
+FREE_FORM_MAPS = {"labels", "annotations", "nodeLabels", "nodeAnnotations", "nodeTaints", "extraArgs",
+                  "env", "sysctls", "kernelArgs", "extraEnv"}
+
+
+def _drop_empty(node, free_form: bool = False):
     """Treat null, "" and empty maps/lists as absent: talosctl adds or strips them when re-serialising
-    (Talos itself reads all of these as "not set")."""
+    (Talos itself reads all of these as "not set"). Inside FREE_FORM_MAPS a "" value is kept."""
     if isinstance(node, dict):
-        out = {k: _drop_empty(v) for k, v in node.items()}
-        return {k: v for k, v in out.items() if v not in (None, "", {}, [])}
+        out = {k: _drop_empty(v, k in FREE_FORM_MAPS) for k, v in node.items()}
+        return {k: v for k, v in out.items() if v not in (None, {}, []) and not (v == "" and not free_form)}
     if isinstance(node, list):
         return [_drop_empty(v) for v in node]
     return node
@@ -257,6 +264,147 @@ def compute(baseline_text: str, actual_text: str, ignore: list[str]) -> dict:
         )
     )
     return {"changes": changes, "ignored": ignored, "diff": diff}
+
+
+def config_diff(current_text: str, new_text: str) -> str:
+    """Unified diff between two configs with secrets masked (unlike talosctl's own dry-run diff)."""
+    current = to_yaml(mask_docs(parse_config(current_text)))
+    new = to_yaml(mask_docs(parse_config(new_text)))
+    return "".join(difflib.unified_diff(current.splitlines(keepends=True), new.splitlines(keepends=True),
+                                        fromfile="current", tofile="new", n=3))
+
+
+def _directly_ignored(path: str, patterns: list[str]) -> bool:
+    return any(_pattern(p).fullmatch(path) for p in patterns)
+
+
+def _holds_ignored(node, path: str, patterns: list[str]) -> bool:
+    """Whether an ignored path lies somewhere below (only through maps; list items need context)."""
+    if not isinstance(node, dict):
+        return False
+    return any(_directly_ignored(_join(path, k), patterns) or _holds_ignored(v, _join(path, k), patterns)
+               for k, v in node.items())
+
+
+def _keep(actual, desired, path: str, patterns: list[str], take: bool = True):
+    """Copy the node's own values for ignored paths from actual into desired (in place).
+    With take=False only drop the ignored paths actual lacks (desired keeps its own values)."""
+    if isinstance(actual, dict) and isinstance(desired, dict):
+        for k in set(actual) | set(desired):
+            p = _join(path, k)
+            if _directly_ignored(p, patterns):
+                if k not in actual:
+                    desired.pop(k, None)
+                elif take:
+                    desired[k] = copy.deepcopy(actual[k])
+            elif k in actual and k in desired:
+                _keep(actual[k], desired[k], p, patterns, take)
+            elif k in desired and isinstance(desired[k], dict):
+                # A map the node lacks: drop the ignored values below it (e.g. cluster.proxy.disabled,
+                # which Talos moves into a KubeProxyConfig document), and the map if nothing is left.
+                _keep({}, desired[k], p, patterns, take)
+                if not desired[k]:
+                    del desired[k]
+            elif k in desired and desired[k] in (None, "", []):
+                # An empty default the node does not have (`talosctl machineconfig patch` writes out
+                # dnsDomain: '', podSubnets: [], ...). Empty values the node does have stay, such as
+                # the "" values of node-role labels.
+                del desired[k]
+            elif take and k in actual and isinstance(actual[k], dict) and _holds_ignored(actual[k], p, patterns):
+                # A map the baseline lacks but with ignored values below (e.g. machine.network
+                # holding only the hostname): create it, with just those values.
+                desired[k] = {}
+                _keep(actual[k], desired[k], p, patterns)
+                if not desired[k]:
+                    del desired[k]
+    elif isinstance(actual, list) and isinstance(desired, list):
+        for i in range(min(len(actual), len(desired))):
+            p = _join(path, i)
+            if _directly_ignored(p, patterns):
+                if take:
+                    desired[i] = copy.deepcopy(actual[i])
+            else:
+                _keep(actual[i], desired[i], p, patterns, take)
+
+
+def keep_ignored(desired_text: str, actual_text: str, patterns: list[str], take: bool = True) -> str:
+    """The desired config, but with the node's live values wherever an ignore rule applies.
+
+    Ignored paths are the ones that may legitimately differ per node (hostname, addresses,
+    install disk, ...); applying a full config must not reset them to the baseline. With
+    take=False (a new node, using an existing node as reference) the per-node values are not
+    copied; only the ignored paths and empty defaults the reference node lacks are dropped.
+    """
+    desired = [d for d in yaml.safe_load_all(desired_text) if isinstance(d, dict)]
+    actual = {_doc_key(d): d for d in yaml.safe_load_all(actual_text) if isinstance(d, dict)}
+    order = {k: i for i, k in enumerate(actual)}
+    out, seen = [], set()
+    for doc in desired:
+        k = _doc_key(doc)
+        seen.add(k)
+        if k and _directly_ignored(k, patterns):
+            if k in actual:
+                out.append(copy.deepcopy(actual[k]) if take else doc)
+            continue
+        if k in actual:
+            _keep(actual[k], doc, k, patterns, take)
+        out.append(doc)
+    if take:
+        out += [copy.deepcopy(d) for k, d in actual.items() if k not in seen and k and _directly_ignored(k, patterns)]
+    out.sort(key=lambda d: order.get(_doc_key(d), len(order)))  # the node's document order: a quieter diff
+    return yaml.safe_dump_all(out, sort_keys=False, default_flow_style=False)
+
+
+_ABSENT = object()
+
+
+def flatten(text: str, ignore: list[str]) -> dict[str, object]:
+    """Masked leaf values of a config by path, without ignored paths."""
+    docs = prune_docs(mask_docs(parse_config(text)), ignore)
+    return {p: v for k, d in docs.items() for p, v in _leaves(d, k, is_doc=bool(k)) if not is_ignored(p, ignore)}
+
+
+def _key(value) -> str:
+    return "\0absent" if value is _ABSENT else json.dumps(value, sort_keys=True, default=str)
+
+
+MAX_PEER_PATHS = 300
+
+
+def peer_differences(nodes: list[dict], ignore: list[str]) -> list[dict]:
+    """Paths whose value differs between nodes of one role.
+
+    `nodes` holds {"hostname", "actual", "baseline"} (config texts; baseline may be None).
+    A difference is *intended* when the baselines differ there too (a node-specific patch) and
+    every node matches its own baseline; otherwise it is unplanned. `odd` lists the nodes that
+    differ from the majority value (all nodes when there is no strict majority).
+    """
+    actual = {n["hostname"]: flatten(n["actual"], ignore) for n in nodes}
+    base = {n["hostname"]: flatten(n["baseline"], ignore) if n.get("baseline") else None for n in nodes}
+    out = []
+    for path in sorted(set().union(*actual.values())):
+        values = {h: a.get(path, _ABSENT) for h, a in actual.items()}
+        keys = {h: _key(v) for h, v in values.items()}
+        if len(set(keys.values())) == 1:
+            continue
+        common, count = Counter(keys.values()).most_common(1)[0]
+        majority = count * 2 > len(keys)
+        bases = {h: _key(b.get(path, _ABSENT)) if b is not None else None for h, b in base.items()}
+        intended = (
+            None not in bases.values()
+            and len(set(bases.values())) > 1
+            and all(bases[h] == keys[h] for h in keys)
+        )
+        out.append({
+            "path": path,
+            "intended": intended,
+            "values": {h: None if v is _ABSENT else v for h, v in values.items()},
+            "absent": [h for h, v in values.items() if v is _ABSENT],
+            "odd": [h for h, k in keys.items() if not majority or k != common],
+        })
+        if len(out) >= MAX_PEER_PATHS:
+            break
+    return out
 
 
 def vips(docs: dict[str, dict]) -> set[str]:

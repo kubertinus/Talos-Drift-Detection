@@ -27,8 +27,9 @@ services:
     volumes:
       - talos-drift-data:/data
       # Host directory (e.g. your home) in which you pick the base folder with talosconfig,
-      # controlplane/worker.yaml and patches in the UI. Read-only; hidden paths are never read.
-      - ${CONFIG_HOST_DIR:-./configs}:/configs:ro
+      # controlplane/worker.yaml and patches in the UI. Writable so the Patches tab can save
+      # edited patch files and delete removed ones; hidden paths are never read or written.
+      - ${CONFIG_HOST_DIR:-./configs}:/configs
     tmpfs:
       - /tmp:size=16m,mode=1777
     read_only: true

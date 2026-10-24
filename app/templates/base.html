@@ -11,7 +11,7 @@
   <link rel="stylesheet" href="/static/app.css">
   {% block head %}{% endblock %}
 </head>
-<body class="h-full bg-slate-950 text-slate-200 antialiased">
+<body class="h-full bg-slate-950 text-slate-200 antialiased{% if user_name and not is_operator %} viewer{% endif %}">
   {% block body %}
   <header class="border-b border-slate-800 bg-slate-900/80 backdrop-blur sticky top-0 z-10">
     <div class="mx-auto max-w-7xl px-4 h-14 flex items-center gap-6">
@@ -28,11 +28,26 @@
           <svg x-show="running" class="w-4 h-4 animate-spin" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="3" opacity=".25"/><path d="M22 12a10 10 0 0 0-10-10" stroke="currentColor" stroke-width="3"/></svg>
           <span x-text="running ? 'Scanning…' : '{{ 'Scan now' if cluster else 'Scan all' }}'"></span>
         </button>
-        {% if user_name %}<span class="hidden sm:inline text-sm text-slate-400" title="Logged in as {{ user_name }}">{{ user_name }}</span>{% endif %}
-        <form method="post" action="/logout"><button class="text-sm text-slate-400 hover:text-white">Log out</button></form>
+        {% if user_name %}<span class="hidden sm:inline text-sm text-slate-400" title="Logged in as {{ user_name }}">{{ user_name }}</span>
+        {% if not is_operator %}<span class="badge badge-muted" title="Read-only: no operator role">viewer</span>{% endif %}{% endif %}
+        <form method="post" action="/logout" class="keep"><button class="text-sm text-slate-400 hover:text-white">Log out</button></form>
       </div>
     </div>
   </header>
+  {% if user_name and not is_operator %}
+  <div class="bg-sky-800 text-white text-sm">
+    <div class="mx-auto max-w-7xl px-4 py-2"><strong>Read-only.</strong> Your account has no operator role: you can look and scan, but not change settings or nodes.</div>
+  </div>
+  {% endif %}
+  {% if password_enabled %}
+  <div class="bg-rose-700 text-white text-sm">
+    <div class="mx-auto max-w-7xl px-4 py-2 flex flex-wrap items-center gap-x-2">
+      <strong>The shared admin password is enabled.</strong>
+      <span class="text-white/90">Actions done with it show as "admin (password)" and cannot be traced to a person.
+        {% if oidc_enabled %}Leave <code>ADMIN_PASSWORD</code> empty to allow OIDC logins only.{% else %}Set up OIDC and leave <code>ADMIN_PASSWORD</code> empty.{% endif %}</span>
+    </div>
+  </div>
+  {% endif %}
   <main class="mx-auto max-w-7xl px-4 py-8">
     {% block content %}{% endblock %}
   </main>

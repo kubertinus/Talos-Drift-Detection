@@ -32,6 +32,9 @@ OIDC_REDIRECT_URI = os.environ.get("OIDC_REDIRECT_URI", "")  # default: <app url
 OIDC_PROVIDER_NAME = os.environ.get("OIDC_PROVIDER_NAME", "Keycloak")
 OIDC_ALLOWED_ROLES = [r.strip() for r in os.environ.get("OIDC_ALLOWED_ROLES", "").split(",") if r.strip()]
 OIDC_ALLOWED_GROUPS = [g.strip() for g in os.environ.get("OIDC_ALLOWED_GROUPS", "").split(",") if g.strip()]
+# Who may change things (apply patches, settings, ...). Empty: everyone who may log in.
+OIDC_OPERATOR_ROLES = [r.strip() for r in os.environ.get("OIDC_OPERATOR_ROLES", "").split(",") if r.strip()]
+OIDC_OPERATOR_GROUPS = [g.strip() for g in os.environ.get("OIDC_OPERATOR_GROUPS", "").split(",") if g.strip()]
 OIDC_ENABLED = bool(OIDC_ISSUER and OIDC_CLIENT_ID)
 PASSWORD_ENABLED = bool(ADMIN_PASSWORD)
 
@@ -46,6 +49,10 @@ DEFAULT_SCAN_INTERVAL = int(os.environ.get("SCAN_INTERVAL", "900"))
 SCAN_CONCURRENCY = int(os.environ.get("SCAN_CONCURRENCY", "5"))
 NODE_TIMEOUT = int(os.environ.get("NODE_TIMEOUT", "30"))
 HISTORY_SIZE = int(os.environ.get("HISTORY_SIZE", "50"))
+
+# Outgoing notifications and Prometheus metrics.
+NOTIFY_WEBHOOK_URLS = [u.strip() for u in (_secret("NOTIFY_WEBHOOK_URLS") or "").split(",") if u.strip()]
+METRICS_TOKEN = _secret("METRICS_TOKEN")
 
 
 def validate() -> None:

@@ -1,0 +1,113 @@
+{% extends "base.html" %}
+{% block title %}New node {{ cluster.name }} · Talos Config Manager{% endblock %}
+{% block content %}
+<div class="flex items-baseline justify-between mb-6">
+  <div>
+    <div class="text-sm text-slate-400 mb-1"><a href="/" class="hover:text-white">Overview</a> <span class="text-slate-600">/</span></div>
+    <h1 class="text-2xl font-semibold text-white">{{ cluster.name }}</h1>
+    <div class="text-sm text-slate-400">Generate the machine config for a new node</div>
+  </div>
+  <div class="text-sm text-slate-400">
+    {% if scan %}Last scan <time class="rel" datetime="{{ scan.finished_at }}">{{ scan.finished_at }}</time>{% else %}No scan yet{% endif %}
+  </div>
+</div>
+{% set tab = 'newnode' %}{% include "_cluster_tabs.html" %}
+
+<p class="text-sm text-slate-400 mb-6 max-w-3xl">
+  The config is what the baseline says a node of that role should have: <code>controlplane.yaml</code> or
+  <code>worker.yaml</code> with every patch for all nodes and for the role, plus a node-specific patch for the new
+  node (copy one from an existing node). It is validated with <code>talosctl validate</code> and only generated
+  while the cluster has no unplanned drift, so a new node starts from the same config as the others.
+</p>
+
+{% if blockers %}
+<div class="alert-error mb-6">
+  <strong>Not possible right now.</strong>
+  <ul class="list-disc ml-5 mt-1">{% for b in blockers %}<li>{{ b }}</li>{% endfor %}</ul>
+</div>
+{% endif %}
+{% for w in warnings %}<div class="alert-warn mb-3">{{ w }}</div>{% endfor %}
+
+<script id="newnode-data" type="application/json">{{ {'templates': templates, 'blocked': blockers | length > 0, 'cluster': cluster.name} | tojson }}</script>
+<div x-data="newNode(JSON.parse(document.getElementById('newnode-data').textContent))" x-cloak class="space-y-6 op-only">
+  <div class="card p-5 grid gap-5 md:grid-cols-3">
+    <div>
+      <span class="text-sm text-slate-300">Role</span>
+      <div class="mt-2 space-y-1 text-sm">
+        <label class="flex items-center gap-2"><input type="radio" value="controlplane" x-model="role" @change="roleChanged()" class="accent-orange-500"> Control plane</label>
+        <label class="flex items-center gap-2"><input type="radio" value="worker" x-model="role" @change="roleChanged()" class="accent-orange-500"> Worker</label>
+      </div>
+    </div>
+    <label class="block">
+      <span class="text-sm text-slate-300">Hostname</span>
+      <input x-model="hostname" @input="changed()" class="input mt-2 font-mono" placeholder="node-4">
+    </label>
+    <label class="block">
+      <span class="text-sm text-slate-300">IP address</span>
+      <input x-model="address" @input="changed()" class="input mt-2 font-mono" placeholder="10.0.0.24">
+      <span class="block text-xs text-slate-500 mt-1">Used in the copied node patch and in the apply command.</span>
+    </label>
+  </div>
+
+  <div class="card p-5 space-y-3">
+    <div class="flex flex-wrap items-end gap-3">
+      <label class="block">
+        <span class="text-sm text-slate-300">Node patch from an existing node</span>
+        <select x-model="template" class="input mt-2 w-auto">
+          <option value="">— choose a node —</option>
+          <template x-for="t in templates[role] || []" :key="t.hostname">
+            <option :value="t.hostname" x-text="t.hostname + (t.patches.length ? ' (' + t.patches.join(', ') + ')' : ' (no node patch)')"></option>
+          </template>
+        </select>
+      </label>
+      <button type="button" class="btn-secondary" @click="loadTemplate()" :disabled="!template">Copy with new hostname and IP</button>
+    </div>
+    <p class="text-xs text-slate-500">Its hostname and IP address are replaced by the new ones; check everything else (interfaces, routes, disks) before generating.</p>
+    <textarea x-model="nodePatch" @input="changed()" rows="14" spellcheck="false" class="input font-mono text-xs leading-relaxed"
+              placeholder="apiVersion: v1alpha1&#10;kind: HostnameConfig&#10;auto: off&#10;hostname: node-4"></textarea>
+    <div class="flex flex-wrap items-center gap-6 text-sm">
+      <label class="flex items-center gap-2"><input type="checkbox" x-model="savePatch" class="accent-orange-500">
+        Register this node patch in the baseline (target <span class="font-mono" x-text="'node:' + (hostname || '…')"></span>)</label>
+      <label class="flex items-center gap-2">Validate for
+        <select x-model="mode" @change="changed()" class="input w-auto py-1">{% for m in modes %}<option value="{{ m }}">{{ m }}</option>{% endfor %}</select></label>
+    </div>
+  </div>
+
+  <div class="flex flex-wrap items-center gap-3">
+    <button type="button" class="btn-primary" @click="generate()" :disabled="blocked || busy || !hostname">
+      <span x-text="busy ? 'Generating…' : 'Generate config'"></span>
+    </button>
+    <span x-show="blocked" class="text-xs text-rose-300">Fix the drift above first.</span>
+  </div>
+  <div x-show="error" class="alert-error whitespace-pre-line" x-text="error"></div>
+
+  <template x-if="result">
+    <section class="space-y-4">
+      <div class="alert-ok">
+        Config for <strong x-text="result.hostname"></strong> (<span x-text="result.role"></span>) generated and valid for
+        <span x-text="result.mode"></span>. Built from: <span class="font-mono" x-text="result.patches.join(' → ') || '(no patches)'"></span>.
+        <span x-show="result.reference"> Compared with <span x-text="result.reference"></span> (ignored paths it lacks are left out).</span>
+        <span x-show="result.saved_patch"> Node patch registered as <a :href="`/c/${CLUSTER}/patches`" class="font-mono underline" x-text="result.saved_patch"></a>
+          (also under <a :href="`/settings/${CLUSTER}#patches`" class="underline">Settings → Patches</a>).</span>
+      </div>
+      <template x-for="w in result.warnings"><div class="alert-warn" x-text="w"></div></template>
+      <div class="card p-5 space-y-3">
+        <div class="flex flex-wrap items-center gap-3">
+          <form method="post" :action="`/c/${CLUSTER}/newnode/download/${result.download_id}`" @submit="downloaded = true">
+            <input type="hidden" name="csrf" value="{{ csrf }}">
+            <button class="btn-primary" :disabled="downloaded">Download <span x-text="result.hostname + '.yaml'"></span></button>
+          </form>
+          <span class="text-xs text-amber-300">Contains the cluster secrets. Downloadable once, for 10 minutes.</span>
+        </div>
+        <div class="text-sm text-slate-300">Then, with the new machine booted from the Talos ISO (maintenance mode):</div>
+        <pre class="card p-3 text-xs font-mono text-slate-200 whitespace-pre-wrap" x-text="applyCommand()"></pre>
+      </div>
+      <details class="card">
+        <summary class="p-4 cursor-pointer text-sm text-slate-300">Preview (secrets masked)</summary>
+        <pre class="border-t border-slate-800 p-4 overflow-auto max-h-[60vh] text-xs font-mono text-slate-300" x-text="result.preview"></pre>
+      </details>
+    </section>
+  </template>
+</div>
+{% if not is_operator %}<div class="text-sm text-slate-500">Read-only: generating a node config needs an operator role (it contains the cluster secrets).</div>{% endif %}
+{% endblock %}

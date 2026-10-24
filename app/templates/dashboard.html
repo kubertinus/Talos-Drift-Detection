@@ -18,6 +18,7 @@
     {% if scan %}Last scan <time class="rel" datetime="{{ scan.finished_at }}">{{ scan.finished_at }}</time>{% else %}No scan yet{% endif %}
   </div>
 </div>
+{% set tab = 'nodes' %}{% include "_cluster_tabs.html" %}
 
 <div class="grid gap-4 sm:grid-cols-2 mb-10">
   {% for role, label in [('controlplane', 'Control planes'), ('worker', 'Workers')] %}

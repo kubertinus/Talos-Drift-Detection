@@ -85,3 +85,38 @@ def test_unreadable_file_gives_clear_error(home, tmp_path):
             sources.read("c1", "patch/a.yaml")
     finally:
         f.chmod(0o644)
+
+
+def test_write_rewrites_in_place_and_creates_new(home, tmp_path):
+    f = tmp_path / "home" / "kubertinus" / "patch" / "a.yaml"
+    f.chmod(0o640)
+    inode = f.stat().st_ino
+    sources.write("c1", "patch/a.yaml", b"machine: {x: 1}\n")
+    assert f.read_bytes() == b"machine: {x: 1}\n"
+    assert f.stat().st_ino == inode and f.stat().st_mode & 0o777 == 0o640
+    sources.write("c1", "patch/new/b.yaml", b"machine: {}\n")
+    assert (tmp_path / "home" / "kubertinus" / "patch" / "new" / "b.yaml").read_bytes() == b"machine: {}\n"
+
+
+@pytest.mark.parametrize("rel", ["../outside.yaml", "escape.yaml", "../.ssh/x.yaml", "ssh/x.yaml", ".git/x.yaml", "patch", "."])
+def test_write_refuses_escape_and_hidden(home, tmp_path, rel):
+    with pytest.raises(sources.SourceError):
+        sources.write("c1", rel, b"x: 1\n")
+    assert (tmp_path / "outside.yaml").read_text() == "secret"
+
+
+def test_check_new_file(home):
+    sources.check_new_file("c1", "patch/new.yaml")
+    for bad in ("patch/a.yaml", "patch/new.txt", "../x.yaml", ".hidden/x.yaml"):
+        with pytest.raises(sources.SourceError):
+            sources.check_new_file("c1", bad)
+
+
+def test_delete_file_only_inside_base(home, tmp_path):
+    f = tmp_path / "home" / "kubertinus" / "patch" / "a.yaml"
+    sources.delete_file("c1", "patch/a.yaml")
+    assert not f.exists()
+    for bad in ("escape.yaml", "../outside.yaml", "ssh/id_ed25519", "patch/a.yaml"):
+        with pytest.raises(sources.SourceError):
+            sources.delete_file("c1", bad)
+    assert (tmp_path / "outside.yaml").exists() and (tmp_path / "home" / ".ssh" / "id_ed25519").exists()

@@ -1,0 +1,287 @@
+{% extends "base.html" %}
+{% block title %}Patches {{ cluster.name }} · Talos Config Manager{% endblock %}
+{% block head %}
+<link rel="stylesheet" href="/static/vendor/diff2html-3.4.48.min.css">
+<script src="/static/vendor/diff2html-3.4.48.min.js"></script>
+{% endblock %}
+{% block content %}
+{% set palette = ['bg-orange-600', 'bg-sky-700', 'bg-violet-700', 'bg-emerald-700', 'bg-rose-700', 'bg-amber-600'] %}
+{% set idx = (clusters | map(attribute='id') | list).index(cluster.id) %}
+<div class="text-sm text-slate-400 mb-3"><a href="/" class="hover:text-white">Overview</a> <span class="text-slate-600">/</span></div>
+<div class="{{ palette[idx % palette | length] }} rounded-xl px-6 py-5 mb-6 flex flex-wrap items-center justify-between gap-3 shadow-lg">
+  <div>
+    <div class="text-xs uppercase tracking-widest text-white/70">Cluster</div>
+    <h1 class="text-3xl font-bold text-white">{{ cluster.name }}</h1>
+  </div>
+  <div class="text-right text-white/90 text-sm">
+    {{ nodes | selectattr('role', 'equalto', 'controlplane') | list | length }} control planes ·
+    {{ nodes | selectattr('role', 'equalto', 'worker') | list | length }} workers
+    {% if scan %}<div class="text-white/70 text-xs">last scan <time class="rel" datetime="{{ scan.finished_at }}">{{ scan.finished_at }}</time></div>{% endif %}
+  </div>
+</div>
+{% set tab = 'patches' %}{% include "_cluster_tabs.html" %}
+
+<script id="patch-data" type="application/json">{{ {'nodes': nodes, 'patches': patches, 'rollout': rollout_state, 'cluster': cluster.name} | tojson }}</script>
+
+<div x-data="patchEditor(JSON.parse(document.getElementById('patch-data').textContent))" x-cloak
+     @rollback.window="startRollback($event.detail)">
+
+  {# --- rollout in progress / last rollout --- #}
+  <template x-if="rollout && rollout.started">
+    <section class="card p-5 mb-8">
+      <div class="flex flex-wrap items-center justify-between gap-3 mb-3">
+        <div>
+          <div class="text-xs uppercase tracking-wide text-slate-400" x-text="rollout.running ? 'Rollout in progress' : 'Last rollout'"></div>
+          <div class="text-white font-medium"><span x-show="rollout.rollback_of" class="badge badge-warn mr-1">rollback</span><span x-show="rollout.action" class="badge badge-muted mr-1" x-text="rollout.action"></span><span class="font-mono" x-text="rollout.name"></span> → <span x-text="rollout.target_label"></span> <span class="text-slate-400 text-sm">(<span x-text="rollout.mode"></span>, by <span x-text="rollout.user"></span>)</span></div>
+        </div>
+        <span x-show="rollout.running" class="badge badge-warn">running…</span>
+        <span x-show="!rollout.running && rollout.ok" class="badge badge-ok">succeeded</span>
+        <span x-show="!rollout.running && rollout.ok === false" class="badge badge-err">failed</span>
+      </div>
+      <div x-show="rollout.error" class="alert-error mb-3" x-text="rollout.error"></div>
+      <div x-show="!rollout.running && rollout.ok && !rollout.saved && rollout.mode === 'try'" class="text-xs text-slate-400 mb-3">Try mode: Talos reverts the change after its timeout; the patch was not saved.</div>
+      <div x-show="rollout.paused" class="alert-warn mb-3 flex flex-wrap items-center gap-3 op-only">
+        <span>Paused after the first node. Check it (Nodes tab, or talosctl), then:</span>
+        <button type="button" class="btn-primary" @click="decide('continue')">Continue with the rest</button>
+        <button type="button" class="btn-secondary" @click="decide('stop')">Stop here</button>
+      </div>
+      <div x-show="!rollout.running && rollout.ok === false && revertable().length" class="mb-3 op-only">
+        <button type="button" class="btn-secondary" @click="revertSucceeded()">Revert succeeded nodes (sync to baseline)</button>
+        <span class="text-xs text-slate-400 ml-2" x-text="revertable().join(', ')"></span>
+      </div>
+      <ol class="space-y-1 text-sm">
+        <template x-for="n in rollout.nodes" :key="n.address">
+          <li class="flex flex-wrap items-center gap-3">
+            <span class="badge" :class="statusClass(n.status)" x-text="n.status"></span>
+            <span class="text-white" x-text="n.hostname"></span>
+            <span class="text-xs text-slate-500 font-mono" x-text="n.address + ' · ' + n.role"></span>
+            <span x-show="n.removes" class="badge badge-muted">patch removed</span>
+            <span x-show="n.error" class="text-xs text-rose-300" x-text="n.error"></span>
+          </li>
+        </template>
+      </ol>
+    </section>
+  </template>
+
+  <div class="grid gap-8 lg:grid-cols-[18rem_1fr]">
+    {# --- patch list --- #}
+    <aside>
+      <div class="text-xs uppercase tracking-wide text-slate-500 mb-2">Patches in this cluster</div>
+      <div class="flex flex-col gap-1">
+        <template x-for="p in patches" :key="p.id">
+          <button type="button" @click="edit(p)" class="text-left px-3 py-2 rounded-md text-sm"
+                  :class="patchId === p.id ? 'bg-slate-800 text-white' : 'text-slate-300 hover:bg-slate-800/60'">
+            <div class="font-mono text-xs break-all" x-text="p.name"></div>
+            <div class="text-[11px] text-slate-500" x-text="p.label + (p.path ? ' · file' : ' · uploaded')"></div>
+          </button>
+        </template>
+        <div x-show="!patches.length" class="text-sm text-slate-500 px-3">No patches yet.</div>
+        <button type="button" @click="newPatch()" class="op-only mt-2 px-3 py-2 rounded-md text-sm flex items-center gap-2"
+                :class="editing && !patchId && !sync && !rollbackOf ? 'bg-slate-800 text-white' : 'text-orange-300 hover:bg-slate-800/60'">
+          <svg class="w-4 h-4" viewBox="0 0 20 20" fill="currentColor"><path d="M10 4a1 1 0 0 1 1 1v4h4a1 1 0 1 1 0 2h-4v4a1 1 0 1 1-2 0v-4H5a1 1 0 1 1 0-2h4V5a1 1 0 0 1 1-1z"/></svg>
+          New patch
+        </button>
+        <button type="button" @click="startSync()" class="op-only px-3 py-2 rounded-md text-sm flex items-center gap-2"
+                :class="sync ? 'bg-slate-800 text-white' : 'text-sky-300 hover:bg-slate-800/60'">
+          <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 0 1-15.5 6.2M3 12a9 9 0 0 1 15.5-6.2M21 4v5h-5M3 20v-5h5"/></svg>
+          Sync nodes to baseline
+        </button>
+      </div>
+    </aside>
+
+    {# --- editor --- #}
+    <section class="min-w-0">
+      <div x-show="!editing" class="card p-10 text-center text-sm text-slate-400">
+        {% if is_operator %}Choose a patch to edit, or create a new one. Changes are only saved when they are applied to the cluster.
+        {% else %}Choose a patch to view its text. Read-only: you cannot change patches.{% endif %}
+      </div>
+
+      <div x-show="editing" class="space-y-6">
+        <div x-show="loadError" class="alert-error" x-text="loadError"></div>
+
+        <div x-show="rollbackOf" class="card p-5 space-y-2">
+          <div class="flex items-baseline justify-between gap-3">
+            <h2 class="text-lg font-semibold text-white">Roll back <span x-text="rollbackOf && rollbackOf.label"></span></h2>
+            <button type="button" @click="editing = false; rollbackOf = null; changed()" class="text-xs text-slate-400 hover:text-white">Cancel</button>
+          </div>
+          <p class="text-sm text-slate-400">Undoes that rollout: an added patch is deleted again, an edit goes back to the previous text and target, a deleted patch comes back. The nodes follow, with the same dry run and checks. Only possible while the patch is still exactly as that rollout left it.</p>
+        </div>
+
+        <div x-show="sync" class="card p-5 space-y-2">
+          <h2 class="text-lg font-semibold text-white">Sync nodes to their baseline</h2>
+          <p class="text-sm text-slate-400">No patch changes: the selected nodes get their config as the baseline describes it (role config plus their patches), which removes any drift. Nodes that drift are preselected.</p>
+        </div>
+
+        <div x-show="!sync && !rollbackOf" class="card p-5 space-y-4">
+          <div class="flex flex-wrap items-baseline justify-between gap-2">
+            <h2 class="text-lg font-semibold text-white" x-text="removing ? 'Delete patch' : patchId ? 'Edit patch' : 'New patch'"></h2>
+            <div class="flex items-center gap-3">
+              <span x-show="patchPath && !removing" class="text-xs text-slate-400">Linked to <span class="font-mono text-slate-200" x-text="patchPath"></span>; on success this file in the base folder is overwritten.</span>
+              <button type="button" x-show="patchId && !removing" @click="startDelete()" class="op-only text-xs text-rose-400 hover:text-rose-300 whitespace-nowrap">Delete this patch…</button>
+              <button type="button" x-show="removing" @click="removing = false; changed()" class="text-xs text-slate-400 hover:text-white">Cancel delete</button>
+            </div>
+          </div>
+          <div x-show="removing" class="alert-error text-sm">
+            The patch is removed from every node it applies to now: each gets its baseline without it. Only after
+            that succeeds on all of them is it removed from the baseline<span x-show="patchPath">, and <span class="font-mono" x-text="patchPath"></span> is deleted from the base folder (its content stays in the history)</span>.
+          </div>
+          <div x-show="!patchId" class="grid gap-4 md:grid-cols-2">
+            <label class="block">
+              <span class="text-sm text-slate-300">Name</span>
+              <input x-model="name" @input="changed()" class="input mt-2 font-mono text-xs" placeholder="sysctls.yaml">
+            </label>
+            {% if base_ok %}
+            <label class="block">
+              <span class="text-sm text-slate-300">Save as file in the base folder (optional)</span>
+              <input x-model="path" @input="changed()" class="input mt-2 font-mono text-xs" placeholder="patch/sysctls.yaml">
+            </label>
+            {% endif %}
+          </div>
+          <textarea x-model="text" @input="changed()" rows="16" spellcheck="false" :readonly="removing" :class="removing && 'opacity-60'"
+                    class="input font-mono text-xs leading-relaxed" placeholder="machine:&#10;  sysctls:&#10;    net.core.somaxconn: &quot;65535&quot;"></textarea>
+        </div>
+
+        <div class="card p-5 grid gap-6 md:grid-cols-2">
+          <div x-show="rollbackOf" class="text-sm text-slate-300">
+            <template x-if="result"><span>Changes: <span class="text-white" x-text="result.name + ' → ' + result.target_label"></span></span></template>
+            <span x-show="!result">Validate to see which nodes change.</span>
+          </div>
+          <div x-show="removing" class="text-sm text-slate-300">
+            Removed from: <span class="text-white" x-text="currentLabel"></span>
+          </div>
+          <div x-show="!removing && !rollbackOf">
+            <span class="text-sm text-slate-300">Apply to</span>
+            <div class="mt-2 space-y-1 text-sm">
+              {% for value, label in [('all', 'All nodes'), ('controlplane', 'All control planes'), ('worker', 'All workers'), ('nodes', 'Selected nodes')] %}
+              <label class="flex items-center gap-2"><input type="radio" value="{{ value }}" x-model="targetType" @change="changed()" class="accent-orange-500"> {{ label }}
+                <span class="text-xs text-slate-500" x-text="'(' + countFor('{{ value }}') + ')'"></span></label>
+              {% endfor %}
+            </div>
+            <div x-show="targetType === 'nodes'" class="mt-3 max-h-64 overflow-y-auto rounded-lg border border-slate-800 divide-y divide-slate-800/60">
+              <template x-for="n in nodes" :key="n.address">
+                <label class="flex items-center gap-3 px-3 py-1.5 text-xs hover:bg-slate-800/50 cursor-pointer">
+                  <input type="checkbox" :value="n.hostname" x-model="selected" @change="changed()" class="accent-orange-500">
+                  <span class="text-white" x-text="n.hostname"></span>
+                  <span class="font-mono text-slate-500" x-text="n.address"></span>
+                  <span class="ml-auto text-slate-400" x-text="n.role"></span>
+                  <span class="badge" :class="statusClass(n.status)" x-text="n.status"></span>
+                </label>
+              </template>
+            </div>
+            <div x-show="splitWarning()" class="alert-warn mt-3 text-xs" x-text="splitWarning()"></div>
+            <p x-show="patchId" class="mt-3 text-xs text-slate-500">After a successful rollout, this becomes the patch's target in the baseline.</p>
+          </div>
+          <div>
+            <span class="text-sm text-slate-300">Mode</span>
+            <div class="mt-2 space-y-2 text-sm">
+              {% for m, help in [
+                ('no-reboot', 'Apply without a reboot; refused when the change needs one.'),
+                ('auto', 'Reboot the node when the change requires it.'),
+                ('staged', 'Takes effect at the next reboot; the node shows drift until then.'),
+                ('try', 'Applied temporarily; Talos reverts it after 1 minute. Not saved.')] %}
+              <label class="flex gap-2"><input type="radio" value="{{ m }}" x-model="mode" @change="changed()" class="accent-orange-500 mt-1">
+                <span><span class="font-mono text-white">{{ m }}</span><br><span class="text-xs text-slate-400">{{ help }}</span></span></label>
+              {% endfor %}
+            </div>
+            <div class="mt-5 space-y-2 text-sm border-t border-slate-800 pt-4">
+              <label class="flex gap-2"><input type="checkbox" x-model="canary" @change="changed()" class="accent-orange-500 mt-1">
+                <span>Pause after the first node<br><span class="text-xs text-slate-400">Canary: check the first node, then Continue or Stop.</span></span></label>
+              <label class="flex gap-2"><input type="checkbox" x-model="skipUnreachable" @change="changed()" class="accent-orange-500 mt-1">
+                <span>Skip unreachable nodes<br><span class="text-xs text-slate-400">They do not get the change and show drift until you sync them.</span></span></label>
+            </div>
+          </div>
+        </div>
+
+        <div class="flex flex-wrap items-center gap-3 op-only">
+          <button type="button" class="btn-secondary" @click="validate()" :disabled="busy || running()">
+            <svg x-show="busy" class="w-4 h-4 animate-spin" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="3" opacity=".25"/><path d="M22 12a10 10 0 0 0-10-10" stroke="currentColor" stroke-width="3"/></svg>
+            <span x-text="busy ? 'Validating…' : 'Validate'"></span>
+          </button>
+          <button type="button" class="btn-primary" @click="apply()" :disabled="!result || !result.plan_id || busy || running()"
+                  :class="removing && '!bg-rose-600 hover:!bg-rose-500'">
+            <span x-text="rollbackOf ? 'Roll back on' : removing ? 'Delete from' : 'Apply to'"></span> <span class="font-semibold" x-text="cluster"></span>
+          </button>
+          <span class="text-xs text-slate-500 max-w-xl">Each selected node gets its full baseline (role config plus all its patches, with this version), keeping its own values for ignored paths. Other drift on the node is reverted too: check the diff. Applying repeats the dry run per node, applies, waits until the node is ready and checks it matches its baseline; it stops at the first error.</span>
+        </div>
+        <div x-show="error" class="alert-error whitespace-pre-line" x-text="error"></div>
+
+        {# --- validation result --- #}
+        <template x-if="result">
+          <section class="space-y-3">
+            <div :class="result.ok ? 'alert-ok' : 'alert-error'">
+              <span x-show="result.ok">Valid for all <span x-text="result.nodes.length"></span> node(s) in <strong x-text="result.cluster"></strong>. Review the changes below, then apply.</span>
+              <span x-show="!result.ok">The dry run failed on one or more nodes; nothing can be applied.</span>
+            </div>
+            <template x-for="w in result.warnings || []"><div class="alert-warn" x-text="w"></div></template>
+            <template x-for="n in result.nodes" :key="n.address">
+              <details class="card" :open="!n.ok || !!n.diff">
+                <summary class="p-3 cursor-pointer text-sm flex flex-wrap items-center gap-3">
+                  <span class="badge" :class="!n.ok ? 'badge-err' : (n.diff || n.hidden_changes) ? 'badge-warn' : 'badge-muted'" x-text="!n.ok ? 'error' : n.diff ? 'changes' : n.hidden_changes ? 'hidden changes' : 'no change'"></span>
+                  <span class="text-white" x-text="n.hostname"></span>
+                  <span class="text-xs text-slate-500 font-mono" x-text="n.address + ' · ' + n.role"></span>
+                  <span x-show="n.removes" class="badge badge-muted">patch removed</span>
+                  <span x-show="reboots(n)" class="badge badge-err">reboot</span>
+                  <span x-show="n.summary" class="text-xs text-slate-400" x-text="'Talos: ' + n.summary"></span>
+                </summary>
+                <div class="border-t border-slate-800 p-3">
+                  <div x-show="n.error" class="text-sm text-rose-300 whitespace-pre-line" x-text="n.error"></div>
+                  <div x-show="n.diff" class="rounded-lg overflow-hidden" x-html="n.diff ? renderDiff(n.diff) : ''"></div>
+                  <div x-show="n.ok && !n.diff && !n.hidden_changes" class="text-xs text-slate-400">This node already has this configuration.</div>
+                  <div x-show="n.hidden_changes" class="alert-warn text-xs" x-text="'Talos reports ' + n.hidden_changes + ' changed line(s) that this diff does not show (e.g. empty values or formatting). Check the node with talosctl before applying.'"></div>
+                </div>
+              </details>
+            </template>
+          </section>
+        </template>
+      </div>
+    </section>
+  </div>
+</div>
+
+{# --- audit log --- #}
+<section class="mt-12">
+  <h2 class="text-lg font-semibold text-white mb-3">History</h2>
+  {% if audit %}
+  <div class="card overflow-x-auto">
+    <table class="w-full text-sm">
+      <thead class="text-left text-xs uppercase text-slate-400 border-b border-slate-800">
+        <tr><th class="p-3">When</th><th class="p-3">User</th><th class="p-3">Patch</th><th class="p-3">Target</th><th class="p-3">Mode</th><th class="p-3">Result</th><th class="p-3"></th></tr>
+      </thead>
+      <tbody>
+        {% for a in audit %}
+        <tr class="border-b border-slate-800/60 align-top">
+          <td class="p-3 text-xs text-slate-400 whitespace-nowrap"><time class="rel" datetime="{{ a.time }}">{{ a.time }}</time></td>
+          <td class="p-3 text-xs">{{ a.user }}</td>
+          <td class="p-3">
+            <details>
+              <summary class="cursor-pointer font-mono text-xs text-white">{% if a.rollback_of %}<span class="badge badge-warn font-sans mr-1">rollback</span>{% endif %}{% if a.action %}<span class="badge {{ 'badge-err' if a.action == 'delete' else 'badge-muted' }} font-sans mr-1">{{ a.action }}</span>{% endif %}{{ a.patch }} <span class="text-slate-500">{{ a.sha256 }}…</span></summary>
+              <pre class="mt-2 card p-3 text-[11px] text-slate-300 whitespace-pre-wrap max-h-64 overflow-auto">{{ a.text }}</pre>
+              <ul class="mt-2 text-xs space-y-0.5">
+                {% for n in a.nodes %}<li><span class="{{ 'text-emerald-300' if n.status == 'done' else 'text-rose-300' if n.status == 'failed' else 'text-slate-500' }}">{{ n.status }}</span> {{ n.hostname }}{% if n.removes %} <span class="text-slate-500">(patch removed)</span>{% endif %}{% if n.error %} <span class="text-rose-300">— {{ n.error }}</span>{% endif %}</li>{% endfor %}
+              </ul>
+            </details>
+          </td>
+          <td class="p-3 text-xs">{{ a.target }}</td>
+          <td class="p-3 text-xs font-mono">{{ a.mode }}</td>
+          <td class="p-3">
+            {% if a.ok %}<span class="badge badge-ok">{{ 'applied' if a.saved or a.mode == 'try' else 'applied, not saved' }}</span>
+            {% else %}<span class="badge badge-err" title="{{ a.error or '' }}">failed</span>{% endif %}
+          </td>
+          <td class="p-3 text-right">
+            {% if not a.rollback_blocker %}
+            <button type="button" class="op-only text-xs text-slate-300 hover:text-white whitespace-nowrap"
+                    onclick="window.dispatchEvent(new CustomEvent('rollback', { detail: {{ {'id': a.id, 'label': a.action ~ ' of ' ~ a.patch} | tojson | forceescape }} }))">Roll back…</button>
+            {% elif a.action != 'sync' and a.ok and a.saved %}
+            <span class="text-xs text-slate-600 whitespace-nowrap cursor-help" title="{{ a.rollback_blocker }}">Roll back</span>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div class="text-sm text-slate-500">No patches have been applied from this app yet.</div>
+  {% endif %}
+</section>
+{% endblock %}
