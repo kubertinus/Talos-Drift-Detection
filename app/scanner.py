@@ -95,6 +95,7 @@ async def _scan_node(sem, tc_path: str, member: dict, baselines: Baselines, igno
             return {**node, "status": "unreachable", "error": str(e), "signature": None, "shape": None}
 
     docs = drift.parse_config(actual)
+    node["config"] = actual  # unmasked, as talosctl returned it; only stored encrypted
     # Never identify a node by a floating VIP: it moves to another node on failover.
     shared = drift.vips(docs)
     if node["address"] in shared:

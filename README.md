@@ -28,6 +28,9 @@ gescheiden in **controlplanes** en **workers**, voor **meerdere clusters** tegel
 - Secrets in configs (tokens, CA-keys, encryptiesecrets, alles wat op `key`/`token`/`secret`
   eindigt) worden vóór vergelijken vervangen door `***sha256:xxxxxxxx`. Je ziet dus dát een
   secret afwijkt, niet de waarde.
+- Uitzondering: onder **Volledige config** op de nodepagina staat de machineconfig van de laatste
+  scan zoals de node hem teruggeeft, **inclusief secrets**, en die is als YAML te downloaden. Wie
+  kan inloggen, kan dus alle cluster-secrets inzien.
 - Web-UI achter een admin-wachtwoord en/of Keycloak (OpenID Connect), sessiecookie `HttpOnly` +
   `SameSite=Lax`, CSRF-tokens, rate-limit op inlogpogingen.
 - Alleen bereikbaar via HTTPS (TLS 1.2+); HTTP stuurt door. Bij de eerste start wordt een

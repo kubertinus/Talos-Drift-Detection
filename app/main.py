@@ -1,11 +1,12 @@
 import asyncio
 import logging
+import re
 from contextlib import asynccontextmanager
 from pathlib import Path
 from urllib.parse import urlencode
 
 from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, Request, UploadFile
-from fastapi.responses import JSONResponse, RedirectResponse
+from fastapi.responses import JSONResponse, PlainTextResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.middleware.sessions import SessionMiddleware
@@ -116,7 +117,7 @@ def _back(cid: str, anchor: str = "", **params) -> RedirectResponse:
 
 
 def _public_node(n: dict) -> dict:
-    return {k: v for k, v in n.items() if k not in ("diff", "changes", "ignored")}
+    return {k: v for k, v in n.items() if k not in ("diff", "changes", "ignored", "config")}
 
 
 # --- auth ----------------------------------------------------------------
@@ -401,14 +402,33 @@ async def dashboard(request: Request, cid: str):
     )
 
 
-@app.get("/c/{cid}/node/{address}", dependencies=[Depends(auth.require_login)])
-async def node_detail(request: Request, cid: str, address: str):
-    cluster = cluster_or_404(cid)
+def _latest_node(cid: str, address: str) -> tuple[dict | None, dict]:
     scan = store.latest(cid)
     node = next((n for n in (scan or {}).get("nodes", []) if n["address"] == address), None)
     if not node:
         raise HTTPException(404, "Node niet gevonden in laatste scan")
+    return scan, node
+
+
+@app.get("/c/{cid}/node/{address}", dependencies=[Depends(auth.require_login)])
+async def node_detail(request: Request, cid: str, address: str):
+    cluster = cluster_or_404(cid)
+    scan, node = _latest_node(cid, address)
     return render(request, "node.html", cluster=cluster, node=node, scan=scan)
+
+
+@app.get("/c/{cid}/node/{address}/config.yaml", dependencies=[Depends(auth.require_login)])
+async def node_config(cid: str, address: str):
+    cluster_or_404(cid)
+    _, node = _latest_node(cid, address)
+    if not node.get("config"):
+        raise HTTPException(404, "Geen config van deze node in de laatste scan")
+    name = re.sub(r"[^A-Za-z0-9._-]+", "_", node.get("hostname") or address)
+    return PlainTextResponse(
+        node["config"],
+        media_type="application/yaml",
+        headers={"Content-Disposition": f'attachment; filename="{name}.yaml"'},
+    )
 
 
 @app.get("/settings/{cid}", dependencies=[Depends(auth.require_login)])

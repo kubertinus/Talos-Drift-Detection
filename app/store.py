@@ -123,4 +123,5 @@ def add_scan(cid: str, scan: dict) -> None:
             n.pop("diff", None)
             n.pop("changes", None)
             n.pop("ignored", None)
+            n.pop("config", None)
     _save(key(cid, "results"), h[-config.HISTORY_SIZE :])

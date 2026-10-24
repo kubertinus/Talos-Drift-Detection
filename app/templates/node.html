@@ -95,6 +95,18 @@
   <script id="diff-data" type="application/json">{{ node.diff | tojson }}</script>
 </section>
 {% endif %}
+
+{% if node.config %}
+<section class="mt-10">
+  <details class="card">
+    <summary class="p-4 cursor-pointer text-sm text-slate-300 flex items-center justify-between gap-3">
+      <span>Volledige config <span class="text-amber-300/80">(bevat secrets)</span></span>
+      <a href="/c/{{ cluster.id }}/node/{{ node.address }}/config.yaml" download class="btn-secondary text-xs" onclick="event.stopPropagation()">Opslaan</a>
+    </summary>
+    <pre class="border-t border-slate-800 p-4 overflow-auto max-h-[70vh] text-xs font-mono text-slate-300">{{ node.config }}</pre>
+  </details>
+</section>
+{% endif %}
 {% endblock %}
 {% block scripts %}
 <script>
