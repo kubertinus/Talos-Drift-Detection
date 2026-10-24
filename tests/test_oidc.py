@@ -4,10 +4,10 @@ from app import config, oidc
 
 
 def test_roles_from_realm_client_and_groups(monkeypatch):
-    monkeypatch.setattr(config, "OIDC_CLIENT_ID", "talos-drift")
+    monkeypatch.setattr(config, "OIDC_CLIENT_ID", "talos-config-manager")
     access = {
         "realm_access": {"roles": ["offline_access", "infra"]},
-        "resource_access": {"talos-drift": {"roles": ["viewer"]}, "other": {"roles": ["admin"]}},
+        "resource_access": {"talos-config-manager": {"roles": ["viewer"]}, "other": {"roles": ["admin"]}},
     }
     roles, groups = oidc.roles_and_groups({"groups": ["/platform/ops"]}, access)
     assert roles == {"offline_access", "infra", "viewer"}

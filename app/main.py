@@ -35,7 +35,7 @@ app = FastAPI(lifespan=lifespan, docs_url=None, redoc_url=None, openapi_url=None
 app.add_middleware(
     SessionMiddleware,
     secret_key=auth.session_secret(),
-    session_cookie="talos_drift_session",
+    session_cookie="talos_config_manager_session",
     max_age=12 * 3600,
     # "lax" so the cookie survives the redirect back from the OIDC provider;
     # state-changing requests are protected by CSRF tokens.

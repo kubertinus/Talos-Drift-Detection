@@ -171,7 +171,7 @@ def self_signed(names: list[str], days: int = 397) -> tuple[bytes, bytes, list[x
         except ValueError:
             sans.append(x509.DNSName(n))
     subject = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, names[0]),
-                         x509.NameAttribute(NameOID.ORGANIZATION_NAME, "Talos Drift (self-signed)")])
+                         x509.NameAttribute(NameOID.ORGANIZATION_NAME, "Talos Config Manager (self-signed)")])
     now = _now()
     cert = (
         x509.CertificateBuilder()

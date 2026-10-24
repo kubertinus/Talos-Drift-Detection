@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="csrf-token" content="{{ csrf }}">
   <meta name="cluster-id" content="{{ cluster.id if cluster else '' }}">
-  <title>{% block title %}Talos Drift Detection{% endblock %}</title>
+  <title>{% block title %}Talos Config Manager{% endblock %}</title>
   <script src="/static/vendor/tailwindcss-3.4.16.js"></script>
   <script defer src="/static/vendor/alpinejs-3.14.1.min.js"></script>
   <link rel="stylesheet" href="/static/app.css">
@@ -17,7 +17,7 @@
     <div class="mx-auto max-w-7xl px-4 h-14 flex items-center gap-6">
       <a href="/" class="flex items-center gap-2 font-semibold text-white">
         <svg class="w-6 h-6 text-orange-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2 3 7v10l9 5 9-5V7z"/><path d="M12 22V12M3 7l9 5 9-5"/></svg>
-        Talos Drift Detection
+        Talos Config Manager
       </a>
       <nav class="flex items-center gap-1 text-sm">
         <a href="/" class="nav-link {% if request.url.path == '/' or request.url.path.startswith('/c/') %}active{% endif %}">Overview</a>

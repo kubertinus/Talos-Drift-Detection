@@ -1,4 +1,4 @@
-# Talos Drift Detection
+# Talos Config Manager
 
 Web app that compares the live machine config of every Talos node with the original
 `controlplane.yaml` / `worker.yaml` and shows the configuration drift per node,
@@ -157,24 +157,25 @@ encrypted in the volume.
 
 The image is always built for **linux/amd64** and **linux/arm64** (`build.platforms` in
 `docker-compose.yml`); talosctl and lego are chosen per architecture. Set the name and tag with
-`IMAGE_NAME` and `IMAGE_TAG` in `.env` (default `talos-drift:latest`).
+`IMAGE_NAME` and `IMAGE_TAG` in `.env` (default `talos-config-manager:latest`).
 
 Your local Docker must be able to store both variants (containerd image store). On Docker Desktop
 use its own builder for this: set `BUILDX_BUILDER=desktop-linux` in `.env`. A docker-container
 builder only keeps one architecture locally. To check:
-`docker image ls --tree talos-drift:latest`.
+`docker image ls --tree talos-config-manager:latest`.
 
 Pushing to a registry:
 
 ```bash
 docker login registry.example.com
-IMAGE_NAME=registry.example.com/team/talos-drift IMAGE_TAG=1.0.4 docker compose build --push
+IMAGE_NAME=registry.example.com/team/talos-config-manager IMAGE_TAG=1.0.4 docker compose build --push
 ```
 
-The workflow in `.gitea/workflows/docker.yml` builds both architectures and pushes to Docker Hub
-(`<DOCKERHUB_USERNAME>/talos-drift-detector`). It does not start on a push or tag, only manually
-(*Actions → Docker build & push → Run workflow*). Choose a tag as ref (e.g. `v1.0.4`) for the image
-tags `1.0.4`, `1.0`, `1` and `latest`; from `main` it becomes `edge`.
+The GitHub Actions workflow in `.github/workflows/docker-build.yml` builds both architectures and
+pushes to Docker Hub (`<DOCKERHUB_USERNAME>/talos-config-manager`). Pushing a tag such as `v1.0.5`
+starts it automatically and produces the image tags `1.0.5`, `1.0`, `1` and `latest`. To (re)build
+an existing tag, run it manually (*Actions → Docker build & push → Run workflow*) from `main` and
+enter the tag; without a tag, a manual run builds `main` as `edge`.
 
 ### Image and CVEs
 
@@ -194,7 +195,7 @@ needed and a full build takes seconds. PyYAML runs as pure Python. The packages 
 Python minor version of the runtime image; a check step fails the build when Chainguard moves to a
 new version (then adjust `PYTHON_VERSION`, e.g. `--build-arg PYTHON_VERSION=3.16`).
 
-To check: `trivy image --platform linux/amd64 talos-drift:latest`.
+To check: `trivy image --platform linux/amd64 talos-config-manager:latest`.
 
 The web UI loads nothing from the internet: Tailwind, Alpine.js and diff2html (pinned versions)
 live in `app/static/vendor/`. The app therefore also works on a system without an internet
@@ -314,14 +315,14 @@ provider. Create a client in Keycloak:
 | Valid redirect URIs | `https://<app>/auth/callback` |
 | Valid post logout redirect URIs | `https://<app>/login` |
 
-Create a realm or client role (e.g. `talos-drift`) and assign it to the users or groups that
+Create a realm or client role (e.g. `talos-config-manager`) and assign it to the users or groups that
 should have access. Then set in `.env`:
 
 ```bash
 OIDC_ISSUER=https://sso.example.com/realms/infra
-OIDC_CLIENT_ID=talos-drift
+OIDC_CLIENT_ID=talos-config-manager
 OIDC_CLIENT_SECRET=...           # or OIDC_CLIENT_SECRET_FILE
-OIDC_ALLOWED_ROLES=talos-drift   # recommended; without a role/group anyone in the realm gets in
+OIDC_ALLOWED_ROLES=talos-config-manager   # recommended; without a role/group anyone in the realm gets in
 ```
 
 The login screen then shows **Log in with Keycloak** (different text: `OIDC_PROVIDER_NAME`). If you

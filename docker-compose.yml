@@ -1,5 +1,5 @@
 services:
-  talos-drift:
+  talos-config-manager:
     build:
       context: .
       # Always a multi-arch image; the Dockerfile picks talosctl/lego per TARGETARCH.
@@ -9,7 +9,7 @@ services:
       args:
         TALOSCTL_VERSION: ${TALOSCTL_VERSION:-latest}   # newest release; set a tag in .env to pin
         LEGO_VERSION: ${LEGO_VERSION:-latest}
-    image: ${IMAGE_NAME:-talos-drift}:${IMAGE_TAG:-latest}
+    image: ${IMAGE_NAME:-talos-config-manager}:${IMAGE_TAG:-latest}
     restart: unless-stopped
     ports:
       - "${HTTPS_PORT:-443}:8443"   # the app, HTTPS only
@@ -37,6 +37,7 @@ services:
       - no-new-privileges:true
 
 volumes:
+  # Name kept from before the rename to Talos Config Manager, so existing data stays in place.
   talos-drift-data:
 
 secrets:

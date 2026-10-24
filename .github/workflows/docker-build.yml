@@ -37,7 +37,7 @@ jobs:
       - id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ${{ secrets.DOCKERHUB_USERNAME }}/talos-drift-detector
+          images: ${{ secrets.DOCKERHUB_USERNAME }}/talos-config-manager
           # Tag v1.2.3 -> 1.2.3, 1.2, 1 and latest.
           # Manual run on main without a tag -> edge.
           tags: |
