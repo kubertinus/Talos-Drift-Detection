@@ -6,14 +6,46 @@ gescheiden in **controlplanes** en **workers**, voor **meerdere clusters** tegel
 
 - Overzicht met de status van alle clusters: in orde / drift / fout, met per node een gekleurd blokje
 - Per cluster een eigen basismap, bestanden, patches, ignore-regels en scaninterval
-
 - Node-discovery via `talosctl get members` (of een handmatige nodelijst)
 - Per node: status *in sync* / *drift* / *onbereikbaar*, aantal afwijkingen, sinds wanneer
 - Detailpagina met tabel van afwijkende paden en side-by-side YAML-diff
+- Volledige actuele config per node bekijken en als YAML opslaan
 - "Wijkt af van meerderheid": nodes van dezelfde rol die anders driften dan de rest
 - Patches (strategic merge, JSON6902, multi-document) per cluster, rol of node opnemen in de baseline
 - Ignore-regels voor paden die per node legitiem verschillen (hostname, interfaces, install disk, …)
 - Periodieke scan (standaard elke 15 min) en een knop "Nu scannen"
+
+## Waarom een losse Docker-container?
+
+De app draait bewust **buiten** de clusters die hij bewaakt. Zou je hem als workload in het
+cluster zelf draaien, dan valt hij weg op precies het moment dat je hem nodig hebt: ligt het
+cluster plat, of zijn de nodes waar hij op draait onbereikbaar, dan is de drift-detectie dat ook.
+Draai je hem ernaast (op een beheerserver, een VM of je eigen machine met Docker), dan blijft het
+overzicht werken en zie je juist welke nodes *onbereikbaar* zijn of sinds wanneer ze afwijken.
+
+Daarnaast:
+
+- **Eén plek voor alle clusters.** Eén container bewaakt meerdere clusters; geen agent per cluster.
+- **Geen installatie op de host.** Talos heeft geen shell of SSH; alles gaat via de Talos API met
+  `talosctl`. Het image bevat talosctl, lego (Let's Encrypt) en Python. De host heeft alleen
+  Docker nodig.
+- **Afgeschermd.** De container draait als non-root met een read-only rootfs en zonder
+  capabilities (zie *Beveiliging*).
+
+Een ander (beheer)cluster kan ook, zolang het niet het cluster is dat je bewaakt. Daarvoor zitten
+er geen manifests in deze repo; `docker-compose.yml` laat zien welke volumes, secrets en
+beveiligingsinstellingen nodig zijn.
+
+### Netwerktoegang naar de clusters
+
+De app praat met de Talos API (`apid`) op **TCP 50000**:
+
+- Heeft de talosconfig `endpoints` (de normale situatie), dan moet de app die endpoints op poort
+  50000 kunnen bereiken. Talos stuurt de aanvragen voor de andere nodes intern door.
+- Heeft de talosconfig géén endpoints (vers gegenereerd), dan spreekt de app elke node direct aan
+  en moet hij **alle** nodes op poort 50000 kunnen bereiken.
+
+Vanaf de clusters naar de app is niets nodig.
 
 ## Beveiliging
 
@@ -26,8 +58,8 @@ gescheiden in **controlplanes** en **workers**, voor **meerdere clusters** tegel
   tmpfs (`/tmp`). Gekoppelde bestanden blijven op de host staan (read-only mount); de app kopieert
   ze niet.
 - Secrets in configs (tokens, CA-keys, encryptiesecrets, alles wat op `key`/`token`/`secret`
-  eindigt) worden vóór vergelijken vervangen door `***sha256:xxxxxxxx`. Je ziet dus dát een
-  secret afwijkt, niet de waarde.
+  eindigt) worden vóór vergelijken vervangen door `***sha256:xxxxxxxx`. In de afwijkingen en de
+  diff zie je dus dát een secret afwijkt, niet de waarde.
 - Uitzondering: onder **Volledige config** op de nodepagina staat de machineconfig van de laatste
   scan zoals de node hem teruggeeft, **inclusief secrets**, en die is als YAML te downloaden. Wie
   kan inloggen, kan dus alle cluster-secrets inzien.
@@ -35,13 +67,15 @@ gescheiden in **controlplanes** en **workers**, voor **meerdere clusters** tegel
   `SameSite=Lax`, CSRF-tokens, rate-limit op inlogpogingen.
 - Alleen bereikbaar via HTTPS (TLS 1.2+); HTTP stuurt door. Bij de eerste start wordt een
   self-signed certificaat gemaakt, daarna kies je Let's Encrypt of een eigen certificaat.
-- Container draait als non-root, read-only rootfs, `cap_drop: ALL`, `no-new-privileges`.
-- Minimaal image zonder bekende CVE's: Chainguard/Wolfi-Python zonder shell of package manager,
-  talosctl en lego uit broncode gebouwd met de nieuwste Go (zie *Image en CVE's*).
+- Container draait als non-root (uid/gid `10001`), read-only rootfs, `cap_drop: ALL`,
+  `no-new-privileges`.
+- Minimaal image: Chainguard/Wolfi-Python zonder shell of package manager, met de officiële
+  releasebinaries van talosctl en lego (zie *Image en CVE's*).
 
 > **Rechten:** de machineconfig is een *sensitive* resource in Talos. Een talosconfig met alleen
-> `os:reader` kan die niet lezen; de app heeft een talosconfig met `os:admin` nodig. Beperk daarom
-> de netwerktoegang tot de app (bijv. alleen intern of achter een reverse proxy met TLS).
+> `os:reader` kan die niet lezen; de app heeft een talosconfig met `os:admin` nodig. Wie de app
+> beheert, heeft daarmee in feite admin-toegang tot de clusters. Beperk daarom de netwerktoegang
+> tot de app (bijv. alleen vanaf het beheernetwerk of via VPN).
 
 ## Starten
 
@@ -54,7 +88,7 @@ chmod 600 secrets/*
 # 2. (optioneel) .env voor overige instellingen
 cp .env.example .env
 
-# 3. Bouwen en starten (haalt automatisch de nieuwste talosctl op)
+# 3. Bouwen en starten (haalt automatisch de nieuwste talosctl en lego op)
 docker compose up -d --build
 ```
 
@@ -104,17 +138,18 @@ in het volume opgeslagen.
 |---|---|---|
 | `MASTER_KEY` / `MASTER_KEY_FILE` | – | Encryptiesleutel, min. 32 tekens (verplicht) |
 | `ADMIN_PASSWORD` / `ADMIN_PASSWORD_FILE` | – | Wachtwoord voor de web-UI (optioneel als OIDC aan staat) |
-| `OIDC_ISSUER`, `OIDC_CLIENT_ID`, `OIDC_CLIENT_SECRET` | – | Inloggen via Keycloak/OIDC, zie hieronder |
+| `OIDC_*` | – | Inloggen via Keycloak/OIDC, zie hieronder |
 | `SESSION_SECRET` | afgeleid van `MASTER_KEY` | Sleutel voor sessiecookies |
 | `COOKIE_SECURE` | `true` | Alleen relevant met `TLS_ENABLED=false` zonder HTTPS-proxy |
-| `HTTPS_PORT` / `HTTP_PORT` | `443` / `80` | Host-poorten voor HTTPS en de doorverwijzing |
+| `HTTPS_PORT` / `HTTP_PORT` | `443` / `80` | Host-poorten voor HTTPS en de doorverwijzing (+ Let's Encrypt HTTP-01) |
 | `TLS_HOSTNAMES` | – | Extra namen in het eerste self-signed certificaat |
 | `TLS_ENABLED` | `true` | `false` achter een TLS-terminerende reverse proxy |
 | `CONFIG_HOST_DIR` | `./configs` | Host-map die read-only op `/configs` wordt gemount; de basismap kies je daarbinnen in de UI |
-| `TALOSCTL_VERSION` | `latest` | talosctl in de image; `latest` = nieuwste stabiele release, of een tag zoals `v1.11.5` om vast te pinnen |
+| `TALOSCTL_VERSION` / `LEGO_VERSION` | `latest` | Versie in het image; `latest` = nieuwste stabiele release, of een tag zoals `v1.11.5` om vast te pinnen |
 | `SCAN_INTERVAL` | `900` | Standaard scaninterval in seconden voor nieuwe clusters (per cluster aan te passen) |
 | `SCAN_CONCURRENCY` | `5` | Aantal nodes dat tegelijk gescand wordt |
 | `NODE_TIMEOUT` | `30` | Timeout per talosctl-aanroep in seconden |
+| `HISTORY_SIZE` | `50` | Aantal scans per cluster in de geschiedenis |
 
 ### Image: architecturen en tag
 
@@ -127,12 +162,17 @@ gebruik je daarvoor de eigen builder: zet `BUILDX_BUILDER=desktop-linux` in `.en
 docker-container-builder bewaart lokaal maar één architectuur. Controleren:
 `docker image ls --tree talos-drift:latest`.
 
-Naar een registry pushen, bijv. die van Gitea:
+Naar een registry pushen:
 
 ```bash
-docker login git.example.com
-IMAGE_NAME=git.example.com/team/talos-drift IMAGE_TAG=1.0.0 docker compose build --push
+docker login registry.example.com
+IMAGE_NAME=registry.example.com/team/talos-drift IMAGE_TAG=1.0.4 docker compose build --push
 ```
+
+De workflow in `.gitea/workflows/docker.yml` bouwt beide architecturen en pusht naar Docker Hub
+(`<DOCKERHUB_USERNAME>/talos-drift-detector`). Hij start niet vanzelf bij een push of tag, maar
+alleen handmatig (*Actions → Docker build & push → Run workflow*). Kies een tag als ref
+(bijv. `v1.0.4`) voor de image-tags `1.0.4`, `1.0`, `1` en `latest`; vanaf `main` wordt het `edge`.
 
 ### Image en CVE's
 
@@ -157,7 +197,7 @@ Controleren: `trivy image --platform linux/amd64 talos-drift:latest`.
 
 De web-UI laadt niets van internet: Tailwind, Alpine.js en diff2html zitten (vaste versies) in
 `app/static/vendor/`. De app werkt dus ook op een systeem zonder internetverbinding; alleen
-Let's Encrypt heeft dan uiteraard geen zin.
+Let's Encrypt werkt dan niet.
 
 ## HTTPS en certificaten
 
@@ -166,26 +206,102 @@ HTTP stuurt alles door naar HTTPS (behalve `/healthz` en Let's Encrypt-challenge
 kies je de poorten met `HTTPS_PORT` (standaard 443) en `HTTP_PORT` (standaard 80).
 
 Bij de eerste start maakt de app een **self-signed** certificaat voor `localhost`, `127.0.0.1` en
-de namen in `TLS_HOSTNAMES`. Onder **Instellingen → HTTPS-certificaat** vervang je dat door:
-
-- **Let's Encrypt** (via [lego](https://go-acme.github.io/lego/), dat in de image zit):
-  - *HTTP-01*: de domeinnaam moet publiek naar deze machine wijzen en poort 80 moet vanaf
-    internet bereikbaar zijn (`HTTP_PORT=80`).
-  - *DNS-01*: een TXT-record via de API van je DNS-provider (Cloudflare, TransIP, Route 53,
-    Hetzner, … ruim 150 providers). Werkt ook voor interne servers en wildcards. De pagina toont
-    welke variabelen de provider nodig heeft.
-  - Gebruik eerst de staging-omgeving om rate limits te voorkomen. Vernieuwen gaat automatisch.
-- **Een eigen certificaat** met private key, intermediates en root (los of in één bestand, in
-  willekeurige volgorde; een versleutelde key met wachtwoordzin kan ook). De app zet de keten op
-  volgorde, controleert handtekeningen en geldigheid, en stuurt leaf + intermediates mee.
-- **Een nieuw self-signed certificaat**, bijv. met de hostnaam waarmee je de app opent.
+de namen in `TLS_HOSTNAMES`. Onder **Instellingen → HTTPS-certificaat** vervang je dat door een
+Let's Encrypt-certificaat, een eigen certificaat of een nieuw self-signed certificaat.
 
 Een nieuw certificaat is direct actief, zonder herstart. Certificaat, key en het
 Let's Encrypt-account worden versleuteld opgeslagen. HSTS wordt alleen meegestuurd bij een
 vertrouwd certificaat op een echte hostnaam (niet bij self-signed, `localhost` of een IP).
 
 Termineert een reverse proxy al TLS, zet dan `TLS_ENABLED=false`; de app serveert dan gewoon
-HTTP op poort 8080.
+HTTP op poort 8080 en de proxy regelt het certificaat.
+
+### Let's Encrypt
+
+Het image bevat [lego](https://go-acme.github.io/lego/). Let's Encrypt moet kunnen controleren
+dat jij de domeinnaam beheert; dat kan op twee manieren. Vul in de UI de domeinnaam (of namen),
+een e-mailadres en de challenge in.
+
+**Welke kies je?**
+
+| | HTTP-01 | DNS-01 |
+|---|---|---|
+| App publiek bereikbaar nodig | ja, poort 80 vanaf internet | nee, kan volledig intern blijven |
+| Wildcard (`*.example.com`) | nee | ja |
+| Nodig bij je DNS-provider | alleen een A/AAAA-record | API-toegang (token) voor TXT-records |
+| Geschikt voor een interne beheerserver | nauwelijks | ja (aanbevolen) |
+
+Omdat deze app admin-toegang tot je clusters heeft en meestal op een intern netwerk staat, is
+**DNS-01 meestal de beste keuze**.
+
+#### HTTP-01: firewall en DNS
+
+Let's Encrypt haalt een bestand op via `http://<domein>/.well-known/acme-challenge/…`.
+
+1. **DNS**: een publiek A-record (en eventueel AAAA) voor het domein dat naar het publieke IP van
+   deze machine (of van je router/firewall) wijst. Heeft het domein een AAAA-record, dan probeert
+   Let's Encrypt eerst IPv6: dan moet poort 80 óók via IPv6 bereikbaar zijn, of haal het
+   AAAA-record weg.
+2. **Inkomend**: TCP **80** vanaf **internet (alle bronadressen)** naar deze machine. Let's
+   Encrypt valideert vanaf meerdere, niet gepubliceerde locaties, dus een allowlist op IP-adres
+   werkt niet. Het moet echt poort 80 zijn; een andere poort kan Let's Encrypt niet gebruiken.
+   - Staat de app achter NAT: port-forward publiek 80 naar de host op `HTTP_PORT`.
+   - Een host-firewall (ufw, firewalld, nftables, security group) moet `HTTP_PORT` toelaten.
+   - Draait er al iets anders op poort 80 (een reverse proxy), laat die
+     `/.well-known/acme-challenge/` dan doorsturen naar `HTTP_PORT` van de app.
+3. **Uitgaand**: TCP **443** naar `acme-v02.api.letsencrypt.org` (staging:
+   `acme-staging-v02.api.letsencrypt.org`), plus DNS.
+4. **Poort 443 hoeft niet open** naar internet. Het certificaat wordt via poort 80 aangevraagd;
+   de HTTPS-poort kun je beperken tot je beheernetwerk.
+
+Poort 80 moet open **blijven**: de app controleert elke 12 uur of het certificaat vernieuwd moet
+worden (als er nog ongeveer een derde van de looptijd over is, bij 90 dagen dus ~30 dagen) en
+gebruikt dan opnieuw de HTTP-challenge. Op poort
+80 serveert de app alleen de challenge en `/healthz`; al het andere is een doorverwijzing naar
+HTTPS, dus er is via poort 80 niets van de app zelf te zien.
+
+#### DNS-01: firewall en DNS
+
+lego zet tijdelijk een TXT-record `_acme-challenge.<domein>` via de API van je DNS-provider
+(Cloudflare, TransIP, Route 53, Hetzner, … ruim 150 providers). Let's Encrypt leest dat record
+via publieke DNS.
+
+1. **DNS**: het domein moet in een **publieke** zone staan bij een provider die lego ondersteunt.
+   Het A-record mag naar een intern IP wijzen, of alleen in je interne DNS bestaan; Let's Encrypt
+   kijkt alleen naar het TXT-record.
+2. **Inkomend**: **niets**. De app hoeft niet vanaf internet bereikbaar te zijn.
+3. **Uitgaand** vanaf de container:
+   - TCP 443 naar de Let's Encrypt API (zie hierboven);
+   - TCP 443 naar de API van je DNS-provider (bijv. `api.cloudflare.com`, `api.transip.nl`);
+   - DNS (UDP/TCP 53) naar de **gezaghebbende nameservers** van je domein: lego wacht tot het
+     TXT-record daar zichtbaar is. Blokkeert je firewall uitgaand DNS naar internet, laat dit dan
+     toe. Lukt dat niet, zet dan in de variabelen van de provider `LEGO_DNS_RESOLVERS=<ip>:53`
+     (een resolver die wél bereikbaar is) of sla de controle over met
+     `LEGO_DNS_PROPAGATION_WAIT=120s` (vast wachten).
+4. Geef het API-token zo weinig rechten als mogelijk (bijv. bij Cloudflare alleen *Zone → DNS →
+   Edit* voor deze ene zone).
+
+De pagina toont per provider welke variabelen lego nodig heeft (bijv. `CF_DNS_API_TOKEN=...`).
+Bestanden die een provider nodig heeft (zoals een private key bij TransIP) plak je in het
+bestandsveld en verwijs je aan met `{file}` in de variabelen.
+
+#### Tips
+
+- Gebruik eerst de **staging**-omgeving. Die geeft een niet-vertrouwd testcertificaat, maar laat
+  zien of de challenge werkt zonder tegen de rate limits van productie aan te lopen (o.a.
+  maximaal 5 mislukte validaties per uur per domein). Werkt het, zet staging uit en vraag
+  opnieuw aan.
+- Mislukt een aanvraag, dan toont de pagina de laatste regels van de lego-uitvoer. Bij HTTP-01 is
+  `Timeout during connect` of `Connection refused` bijna altijd de firewall, port-forward of een
+  AAAA-record; bij DNS-01 meestal het API-token of een geblokkeerde DNS-poort.
+- Vernieuwen gaat automatisch; je hoeft niets te doen zolang de firewallregels blijven staan.
+
+### Eigen of self-signed certificaat
+
+- **Een eigen certificaat** met private key, intermediates en root (los of in één bestand, in
+  willekeurige volgorde; een versleutelde key met wachtwoordzin kan ook). De app zet de keten op
+  volgorde, controleert handtekeningen en geldigheid, en stuurt leaf + intermediates mee.
+- **Een nieuw self-signed certificaat**, bijv. met de hostnaam waarmee je de app opent.
 
 ## Inloggen met Keycloak (OpenID Connect)
 
@@ -209,10 +325,11 @@ OIDC_CLIENT_SECRET=...           # of OIDC_CLIENT_SECRET_FILE
 OIDC_ALLOWED_ROLES=talos-drift   # aanbevolen; zonder rol/groep mag iedereen uit de realm erin
 ```
 
-Het inlogscherm toont dan **Inloggen met Keycloak**. Laat je `ADMIN_PASSWORD` weg, dan is dat de
-enige manier om in te loggen. Toegang beperken kan op rollen (`OIDC_ALLOWED_ROLES`: realm-rollen en
-clientrollen van deze client) en/of groepen (`OIDC_ALLOWED_GROUPS`: de `groups`-claim, waarvoor in
-Keycloak een *Group Membership*-mapper nodig is). Uitloggen beëindigt ook de Keycloak-sessie.
+Het inlogscherm toont dan **Inloggen met Keycloak** (andere tekst: `OIDC_PROVIDER_NAME`). Laat je
+`ADMIN_PASSWORD` weg, dan is dat de enige manier om in te loggen. Toegang beperken kan op rollen
+(`OIDC_ALLOWED_ROLES`: realm-rollen en clientrollen van deze client) en/of groepen
+(`OIDC_ALLOWED_GROUPS`: de `groups`-claim, waarvoor in Keycloak een *Group Membership*-mapper
+nodig is). Uitloggen beëindigt ook de Keycloak-sessie.
 
 De app en de browser moeten de Keycloak-URL allebei kunnen bereiken. Draait de app achter een
 reverse proxy, zorg dan dat die `X-Forwarded-Proto`/`Host` doorgeeft, of zet `OIDC_REDIRECT_URI`.
@@ -225,8 +342,11 @@ reverse proxy, zorg dan dat die `X-Forwarded-Proto`/`Host` doorgeeft, of zet `OI
    workers met `worker.yaml`.
 3. Op die baseline worden de toepasselijke patches gezet (zie hieronder).
 4. Beide kanten worden gemaskeerd, ignore-paden worden weggefilterd, en daarna volgt een
-   recursieve vergelijking (`added` / `removed` / `changed`). Lege waarden (`null`, `{}`, `[]`)
-   tellen als afwezig.
+   recursieve vergelijking (`added` / `removed` / `changed`). Lege waarden (`null`, `""`, `{}`,
+   `[]`) tellen als afwezig.
+
+Afwijkingen worden per veld gerapporteerd, ook als er een heel document of blok bij is gekomen.
+Zo kun je precies negeren wat per node mag verschillen en blijft de rest bewaakt.
 
 ### Patches
 
@@ -248,8 +368,7 @@ Patches worden net als de rest versleuteld opgeslagen.
 
 Een patch die wél in de baseline staat maar niet op de node is toegepast, verschijnt als drift.
 
-Afwijkingen worden per veld gerapporteerd, ook als er een heel document of blok bij is gekomen.
-Zo kun je precies negeren wat per node mag verschillen en blijft de rest bewaakt.
+### Ignore-regels
 
 Ignore-regels gebruiken punt-notatie, lijstindexen als `[0]` en documenten als `Kind` of
 `Kind[naam]`. Een regel negeert ook alles eronder. Wildcards:
@@ -264,8 +383,8 @@ Standaard worden alleen hostname, IP-adressen per interface en de install disk g
 Op de detailpagina zet je een afwijking met "negeren" op de lijst (het voorstel is aan te passen),
 en onder "Genegeerd" zie je welke afwijkingen door welke regel worden weggefilterd.
 
-Tip: patches die je per node bewust toepast (bijv. via `talosctl gen config --config-patch`)
-kun je het beste in de baseline opnemen of als ignore-pad toevoegen.
+Verschilt iets per node omdat je het bewust zo hebt ingesteld, neem het dan op als node-patch;
+gebruik een ignore-regel alleen voor waarden die je niet wilt bewaken.
 
 ## Ontwikkelen
 
