@@ -173,13 +173,13 @@ def existing_node_patches(cid: str, hostname: str) -> list[str]:
 
 
 def save_node_patch(cid: str, hostname: str, node_patch: str) -> dict:
-    """Register the node patch for the new node (target node:<hostname>): as patch/<hostname>.yaml in
-    the base folder when possible, else stored in the app. Never twice, never over an existing file."""
+    """Register the node patch for the new node (target node:<hostname>): as <hostname>.yaml in the
+    base folder's patch folder (patches.folder) when possible, else stored in the app. Never twice, never over an existing file."""
     existing = existing_node_patches(cid, hostname)
     if existing:
         raise NodeGenError(f"{hostname} already has a node patch ({', '.join(existing)}); not registered again.")
     data = node_patch.replace("\r\n", "\n").encode()
-    path = f"patch/{hostname}.yaml"
+    path = f"{patches.folder(cid)}/{hostname}.yaml"
     if sources.base_path(cid):
         if sources.base_path(cid).joinpath(path).exists():
             raise NodeGenError(f"{path} already exists in the base folder; link it under Settings → Patches, "

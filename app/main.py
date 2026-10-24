@@ -627,6 +627,7 @@ async def patches_page(request: Request, cid: str):
         nodes=[_public_node(n) for n in (scan or {}).get("nodes", [])],
         patches=[patches.describe(cid, p) for p in patches.all_patches(cid)],
         base_ok=sources.base_path(cid) is not None,
+        patch_folder=patches.folder(cid),
         modes=rollout.MODES,
         rollout_state=rollout.status(cid),
         audit=_history(cid),

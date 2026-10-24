@@ -396,8 +396,9 @@ yourself). The result is checked with `talosctl validate` (metal, cloud or conta
 downloaded once, within 10 minutes; a masked preview is shown. Then boot the machine from the
 Talos ISO and run `talosctl apply-config --insecure -n <ip> --file <hostname>.yaml`.
 
-Optionally the node patch is registered in the baseline right away (as `patch/<hostname>.yaml`
-with target `node:<hostname>`), so the new node is *in sync* as soon as it joins.
+Optionally the node patch is registered in the baseline right away (as `<hostname>.yaml` in the
+folder of your other patch files, e.g. `patches/`, with target `node:<hostname>`), so the new node
+is *in sync* as soon as it joins.
 
 Generating is refused while the cluster has unplanned drift (nodes in *drift*, *patch error* or
 *no baseline*, or unplanned differences between nodes of a role), so a new node never starts from
@@ -465,8 +466,8 @@ The **Patches** tab of a cluster lists its patches. Edit one, or write a new one
 are only saved when they are applied to the cluster. The cluster name is shown in a coloured
 banner (a different colour per cluster) and again in the confirmation.
 
-1. **Target**: all nodes, all control planes, all workers, or a selection of nodes from the latest
-   scan.
+1. **Target** (new patches only): all nodes, all control planes, all workers, or a selection of
+   nodes from the latest scan.
 2. **Mode** (`talosctl apply-config --mode`): `no-reboot` (default; refused if the change needs a
    reboot), `auto` (reboots when needed), `staged` (takes effect at the next reboot) or `try`
    (Talos reverts it after 1 minute; not saved).
@@ -509,9 +510,10 @@ as a file in the base folder or encrypted in the app), its target in the baselin
 target, and the cluster is rescanned. Every rollout, with user, patch text, mode and result per
 node, is kept in the history at the bottom of the tab.
 
-If you narrow the target of an existing patch (e.g. from all control planes to one node), the
-nodes that fall outside it are part of the rollout too: they get their config without the patch,
-so it is really removed from them instead of lingering as drift.
+The target of an **existing** patch is fixed: an edit only changes its text, never who gets it, so
+an edit can never silently remove a patch from nodes. To try a change on one node first, use
+*Pause after the first node*; to give other nodes the setting, create a new patch; to take it away,
+delete the patch. Only a rollback may restore an earlier target.
 
 **Deleting a patch** (*Delete this patch…* in the editor) works the same way: every node the patch
 applies to gets its baseline without it, with a dry run, a diff per node and the same checks. Only

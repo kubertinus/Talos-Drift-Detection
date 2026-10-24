@@ -108,3 +108,16 @@ def test_node_patch_is_never_registered_twice(cluster):
         nodegen.save_node_patch(cluster, "w-2", "machine: {}\n")
     res = asyncio.run(nodegen.generate(cluster, "worker", "w-2", "10.0.1.2", ""))
     assert any("already has a node patch" in w for w in res["warnings"])
+
+
+def test_new_files_go_to_the_folder_the_patches_are_in(cluster, tmp_path, monkeypatch):
+    base = tmp_path / "cfg" / "clus"
+    (base / "patches").mkdir(parents=True)
+    (base / "patches" / "a.yaml").write_text("machine: {}\n")
+    monkeypatch.setattr(sources.config, "CONFIG_DIR", tmp_path / "cfg")
+    sources.set_base_dir(cluster, "clus")
+    assert patches.folder(cluster) == "patches"  # existing folder, nothing linked yet
+    patches.add_link(cluster, "patches/a.yaml", "all")
+    p = nodegen.save_node_patch(cluster, "w-2", "machine: {}\n")
+    assert p["path"] == "patches/w-2.yaml" and (base / "patches" / "w-2.yaml").exists()
+    assert not (base / "patch").exists()

@@ -173,6 +173,11 @@ async def validate(cid: str, text: str, target: str, mode: str, patch_id: str | 
         existing = patches.get(cid, patch_id)
         if not existing:
             raise RolloutError("Patch not found")
+        # Changing who gets an existing patch would silently remove it from nodes; only a rollback
+        # may restore an earlier target.
+        if target != existing["target"] and not rollback_of:
+            raise RolloutError(f"The target of an existing patch cannot be changed (it is {patches.target_label(existing['target'])}). "
+                               "To give other nodes this setting, create a new patch; to remove it, delete the patch.")
         name, path = existing["name"], ""
         try:
             content = patches.read(cid, existing)

@@ -207,12 +207,11 @@ def test_plan_is_bound_to_cluster_and_single_use(cluster, fake):
     asyncio.run(go())
 
 
-def test_edit_refused_when_changed_meanwhile_and_narrowing_warns(cluster, fake):
+def test_edit_refused_when_changed_meanwhile(cluster, fake):
     p = patches.add(cluster, "old.yaml", b"machine: {}\n", "worker")
 
     async def go():
-        plan = await rollout.validate(cluster, PATCH, "node:w-1", "no-reboot", patch_id=p["id"])
-        assert any("w-2" in w for w in plan["warnings"])
+        plan = await rollout.validate(cluster, PATCH, "worker", "no-reboot", patch_id=p["id"])
         patches.save(cluster, p["id"], b"machine: {sysctls: {b: '2'}}\n", "worker")
         with pytest.raises(rollout.RolloutError, match="changed since"):
             rollout.start(cluster, plan["plan_id"], "admin")
@@ -237,18 +236,16 @@ def test_validate_rejects_bad_input(cluster, fake):
             asyncio.run(rollout.validate(*args))
 
 
-def test_narrowing_the_target_removes_the_patch_from_left_out_nodes(cluster, fake):
-    """All workers first, then only w-1: w-2 must lose the patch instead of keeping it as drift."""
+def test_target_of_an_existing_patch_is_locked(cluster, fake):
+    """Narrowing (or otherwise changing) the target would silently remove the patch from nodes."""
     _rollout(cluster, PATCH, "worker", "no-reboot", name="sysctls.yaml")
-    assert all("sysctls" in yaml.safe_load(fake["configs"][a])["machine"] for a in ("10.0.1.1", "10.0.1.2"))
     p = patches.all_patches(cluster)[0]
-    plan = _rollout(cluster, PATCH, "node:w-1", "no-reboot", patch_id=p["id"])
-    assert [(n["hostname"], n["removes"]) for n in plan["nodes"]] == [("w-1", False), ("w-2", True)]
-    assert any("w-2" in w for w in plan["warnings"])
-    assert "sysctls" in yaml.safe_load(fake["configs"]["10.0.1.1"])["machine"]
-    assert "sysctls" not in yaml.safe_load(fake["configs"]["10.0.1.2"])["machine"]
-    assert patches.get(cluster, p["id"])["target"] == "node:w-1"
-    assert [n["status"] for n in rollout.status(cluster)["nodes"]] == ["done", "done"]
+    fake["applied"].clear()
+    for target in ("node:w-1", "all", "controlplane"):
+        with pytest.raises(rollout.RolloutError, match="cannot be changed"):
+            asyncio.run(rollout.validate(cluster, PATCH, target, "no-reboot", patch_id=p["id"]))
+    assert fake["applied"] == [] and patches.get(cluster, p["id"])["target"] == "worker"
+    assert all(_sysctls(fake, a) == {"a": "1"} for a in ("10.0.1.1", "10.0.1.2"))
 
 
 def test_sync_brings_a_drifting_node_back_to_its_baseline(cluster, fake):
@@ -346,11 +343,11 @@ def test_rollback_of_a_new_patch_deletes_it(cluster, fake):
     assert audit.entries(cluster)[0]["rollback_of"] and audit.entries(cluster)[0]["action"] == "delete"
 
 
-def test_rollback_of_an_edit_restores_text_and_target(cluster, fake):
+def test_rollback_of_an_edit_restores_the_text(cluster, fake):
     _rollout(cluster, PATCH, "worker", "no-reboot", name="s.yaml")
     p = patches.all_patches(cluster)[0]
-    _rollout(cluster, "machine:\n  sysctls:\n    a: '9'\n", "node:w-1", "no-reboot", patch_id=p["id"])
-    assert _sysctls(fake, "10.0.1.1") == {"a": "9"} and _sysctls(fake, "10.0.1.2") is None
+    _rollout(cluster, "machine:\n  sysctls:\n    a: '9'\n", "worker", "no-reboot", patch_id=p["id"])
+    assert _sysctls(fake, "10.0.1.1") == {"a": "9"}
     _rollback(cluster, audit.entries(cluster)[0])
     p = patches.get(cluster, p["id"])
     assert p["target"] == "worker" and patches.read(cluster, p) == PATCH.encode()

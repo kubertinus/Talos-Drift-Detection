@@ -133,7 +133,7 @@
             {% if base_ok %}
             <label class="block">
               <span class="text-sm text-slate-300">Save as file in the base folder (optional)</span>
-              <input x-model="path" @input="changed()" class="input mt-2 font-mono text-xs" placeholder="patch/sysctls.yaml">
+              <input x-model="path" @input="changed()" class="input mt-2 font-mono text-xs" placeholder="{{ patch_folder }}/sysctls.yaml">
             </label>
             {% endif %}
           </div>
@@ -149,7 +149,13 @@
           <div x-show="removing" class="text-sm text-slate-300">
             Removed from: <span class="text-white" x-text="currentLabel"></span>
           </div>
-          <div x-show="!removing && !rollbackOf">
+          <div x-show="patchId && !removing && !rollbackOf" class="text-sm text-slate-300">
+            Applies to: <span class="text-white" x-text="currentLabel"></span>
+            <p class="mt-2 text-xs text-slate-500">The target of an existing patch is fixed, so an edit can never remove it from nodes.
+              To try a change on one node first, use <em>Pause after the first node</em>. To give other nodes this setting,
+              create a new patch; to remove it, delete the patch.</p>
+          </div>
+          <div x-show="!patchId && !removing && !rollbackOf">
             <span class="text-sm text-slate-300">Apply to</span>
             <div class="mt-2 space-y-1 text-sm">
               {% for value, label in [('all', 'All nodes'), ('controlplane', 'All control planes'), ('worker', 'All workers'), ('nodes', 'Selected nodes')] %}
@@ -169,7 +175,7 @@
               </template>
             </div>
             <div x-show="splitWarning()" class="alert-warn mt-3 text-xs" x-text="splitWarning()"></div>
-            <p x-show="patchId" class="mt-3 text-xs text-slate-500">After a successful rollout, this becomes the patch's target in the baseline.</p>
+
           </div>
           <div>
             <span class="text-sm text-slate-300">Mode</span>

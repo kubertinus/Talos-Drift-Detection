@@ -92,6 +92,16 @@ def add_link(cid: str, rel: str, target: str) -> dict:
     return entry
 
 
+def folder(cid: str) -> str:
+    """Where new patch files go in the base folder: where the linked patches are (the most used
+    folder), else an existing patches/ or patch/ folder, else patch/."""
+    dirs = [p["path"].rsplit("/", 1)[0] for p in _load(cid) if p.get("path") and "/" in p["path"]]
+    if dirs:
+        return max(set(dirs), key=dirs.count)
+    base = sources.base_path(cid)
+    return next((d for d in ("patches", "patch") if base and (base / d).is_dir()), "patch")
+
+
 def linked_paths(cid: str) -> set[str]:
     return {p["path"] for p in _load(cid) if p.get("path")}
 
