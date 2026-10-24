@@ -52,7 +52,7 @@ function folderPicker(initial) {
     async go(path) {
       const r = await api('/api/dirs?path=' + encodeURIComponent(path || ''));
       if (!r.ok) {
-        this.error = (await r.json()).detail || 'Map niet gevonden';
+        this.error = (await r.json()).detail || 'Folder not found';
         if (path) return this.go('');
         return;
       }
@@ -92,7 +92,7 @@ function dialog({ message, value = null, ok = 'OK' }) {
         <div class="text-sm text-slate-200 whitespace-pre-line"></div>
         ${value === null ? '' : '<input class="input font-mono text-xs">'}
         <div class="flex justify-end gap-2">
-          <button type="button" data-act="cancel" class="btn-secondary">Annuleren</button>
+          <button type="button" data-act="cancel" class="btn-secondary">Cancel</button>
           <button type="button" data-act="ok" class="btn-primary"></button>
         </div>
       </div>`;
@@ -113,34 +113,34 @@ function dialog({ message, value = null, ok = 'OK' }) {
   });
 }
 
-// <form onsubmit="return confirmSubmit(event, 'Weet je het zeker?')">
+// <form onsubmit="return confirmSubmit(event, 'Are you sure?')">
 function confirmSubmit(event, message) {
   event.preventDefault();
   const form = event.target;
-  dialog({ message, ok: 'Ja' }).then((yes) => { if (yes) form.submit(); });
+  dialog({ message, ok: 'Yes' }).then((yes) => { if (yes) form.submit(); });
   return false;
 }
 
 async function ignorePath(path) {
   const rule = await dialog({
     message:
-      'Ignore-regel toevoegen en opnieuw scannen.\n' +
-      'Pas aan om breder te negeren: [*] = elke lijstindex of documentnaam, * = één segment, ' +
-      '** = alles. Een regel negeert ook alles eronder.',
+      'Add an ignore rule and rescan.\n' +
+      'Edit to ignore more broadly: [*] = any list index or document name, * = one segment, ' +
+      '** = anything. A rule also ignores everything below it.',
     value: path,
-    ok: 'Negeren',
+    ok: 'Ignore',
   });
   if (!rule || !rule.trim()) return;
   const r = await api(`/api/c/${CLUSTER}/ignore`, { method: 'POST', body: JSON.stringify({ path: rule.trim() }) });
-  if (!r.ok) return dialog({ message: `Opslaan mislukt (${r.status}).` });
+  if (!r.ok) return dialog({ message: `Saving failed (${r.status}).` });
   // Wait for the rescan so the page shows the result without the ignored path.
   await waitForScans();
   location.reload();
 }
 
-// Show ISO timestamps as relative Dutch time ("5 minuten geleden").
+// Show ISO timestamps as relative time ("5 minutes ago").
 (function () {
-  const rtf = new Intl.RelativeTimeFormat('nl', { numeric: 'auto' });
+  const rtf = new Intl.RelativeTimeFormat('en', { numeric: 'auto' });
   const units = [['day', 86400], ['hour', 3600], ['minute', 60], ['second', 1]];
   document.querySelectorAll('time.rel').forEach((el) => {
     const d = new Date(el.getAttribute('datetime'));
@@ -148,6 +148,6 @@ async function ignorePath(path) {
     const diff = (d - Date.now()) / 1000;
     const [unit, secs] = units.find(([, s]) => Math.abs(diff) >= s) || units[3];
     el.textContent = rtf.format(Math.round(diff / secs), unit);
-    el.title = d.toLocaleString('nl-NL');
+    el.title = d.toLocaleString('en-GB');
   });
 })();

@@ -14,7 +14,7 @@ def test_applicable_order_and_targets():
 def test_check_yaml():
     assert patches.check_yaml(b"machine:\n  sysctls: {a: '1'}\n") is None
     assert patches.check_yaml(b"- op: add\n  path: /x\n  value: 1\n") is None
-    assert "regel" in patches.check_yaml(b"machine: [broken\n")
+    assert "line" in patches.check_yaml(b"machine: [broken\n")
     assert patches.check_yaml(b"just a string") is not None
 
 

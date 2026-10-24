@@ -62,16 +62,16 @@ def is_running() -> bool:
 
 def validate(s: dict) -> str | None:
     if not s["domains"]:
-        return "Vul minstens één domeinnaam in."
+        return "Enter at least one domain name."
     for d in s["domains"]:
         if not re.fullmatch(r"(\*\.)?([a-z0-9-]+\.)+[a-z]{2,63}", d):
-            return f"{d} is geen geldige (publieke) domeinnaam."
+            return f"{d} is not a valid (public) domain name."
     if not re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", s["email"]):
-        return "Vul een geldig e-mailadres in."
+        return "Enter a valid email address."
     if s["challenge"] == "http" and any(d.startswith("*.") for d in s["domains"]):
-        return "Wildcard-certificaten kunnen alleen met de DNS-challenge."
+        return "Wildcard certificates require the DNS challenge."
     if s["challenge"] == "dns" and not re.fullmatch(r"[a-z0-9]+", s["dns_provider"]):
-        return "Kies een DNS-provider (lego-code, bijv. cloudflare of transip)."
+        return "Choose a DNS provider (lego code, e.g. cloudflare or transip)."
     return None
 
 
@@ -156,7 +156,7 @@ async def obtain(force: bool = False) -> tuple[bool, str]:
             except asyncio.TimeoutError:
                 proc.kill()
                 await proc.wait()
-                out = b"lego: timeout na 10 minuten"
+                out = b"lego: timed out after 10 minutes"
             output = out.decode(errors="replace")
             tail = "\n".join(output.strip().splitlines()[-15:])
             now = datetime.now(timezone.utc).isoformat(timespec="seconds")
@@ -168,8 +168,8 @@ async def obtain(force: bool = False) -> tuple[bool, str]:
             name = s["domains"][0].replace("*", "_")
             crt, key = _find(store, name, ".crt"), _find(store, name, ".key")
             if not crt or not key:
-                _set_status(last_run=now, ok=False, message="lego gaf geen certificaat terug")
-                return False, "lego gaf geen certificaat terug.\n" + tail
+                _set_status(last_run=now, ok=False, message="lego returned no certificate")
+                return False, "lego returned no certificate.\n" + tail
             try:
                 fullchain, key_pem, chain = tls.prepare(crt.read_bytes(), key.read_bytes())
                 current = tls.meta() or {}

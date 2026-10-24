@@ -6,16 +6,16 @@
     </div>
     {% if n.status == 'in-sync' %}<span class="badge badge-ok">in sync</span>
     {% elif n.status == 'drift' %}<span class="badge badge-warn">drift · {{ n.drift_count }}</span>
-    {% elif n.status == 'unreachable' %}<span class="badge badge-err">onbereikbaar</span>
-    {% elif n.status == 'patch-error' %}<span class="badge badge-err">patchfout</span>
-    {% else %}<span class="badge badge-muted">geen baseline</span>{% endif %}
+    {% elif n.status == 'unreachable' %}<span class="badge badge-err">unreachable</span>
+    {% elif n.status == 'patch-error' %}<span class="badge badge-err">patch error</span>
+    {% else %}<span class="badge badge-muted">no baseline</span>{% endif %}
   </div>
   <div class="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-400">
     {% if n.talos_version %}<span>Talos {{ n.talos_version }}</span>{% endif %}
     {% if n.patches %}<span>+{{ n.patches | length }} patch{{ 'es' if n.patches | length != 1 }}</span>{% endif %}
     {% if n.vip %}<span class="text-sky-300">VIP {{ n.vip }}</span>{% endif %}
-    {% if n.drift_since %}<span>drift sinds <time class="rel" datetime="{{ n.drift_since }}">{{ n.drift_since }}</time></span>{% endif %}
-    {% if n.outlier %}<span class="text-rose-300">wijkt af van meerderheid</span>{% endif %}
+    {% if n.drift_since %}<span>drift since <time class="rel" datetime="{{ n.drift_since }}">{{ n.drift_since }}</time></span>{% endif %}
+    {% if n.outlier %}<span class="text-rose-300">differs from majority</span>{% endif %}
   </div>
   {% if n.error %}<div class="mt-2 text-xs text-rose-300/80 truncate" title="{{ n.error }}">{{ n.error }}</div>{% endif %}
 </a>

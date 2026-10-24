@@ -67,7 +67,7 @@ def resolve(cid: str, rel: str) -> Path:
     base = base_path(cid)
     path = _inside(base, rel) if base else None
     if not path or not path.is_file():
-        raise SourceError(f"{rel} niet gevonden in basismap {base_dir(cid) or '(niet ingesteld)'}")
+        raise SourceError(f"{rel} not found in base folder {base_dir(cid) or '(not set)'}")
     return path
 
 
@@ -76,12 +76,12 @@ def list_dirs(rel: str = "") -> dict:
     root = config.CONFIG_DIR.resolve()
     path = _inside(root, rel) if available() else None
     if not path or not path.is_dir():
-        raise SourceError(f"Map {rel or '/'} niet gevonden")
+        raise SourceError(f"Folder {rel or '/'} not found")
     dirs = []
     try:
         entries = sorted(path.iterdir(), key=lambda p: p.name.lower())
     except OSError as e:
-        raise SourceError(f"Map {rel or '/'} niet leesbaar: {e.strerror}") from e
+        raise SourceError(f"Folder {rel or '/'} not readable: {e.strerror}") from e
     for p in entries:
         if p.name.startswith(".") or not _safe_is_dir(p) or not _inside(root, str(p.relative_to(root))):
             continue
@@ -112,11 +112,11 @@ def _looks_like_cluster(p: Path) -> bool:
 def read(cid: str, rel: str) -> bytes:
     path = resolve(cid, rel)
     if path.stat().st_size > MAX_SIZE:
-        raise SourceError(f"{rel} is groter dan 1 MB")
+        raise SourceError(f"{rel} is larger than 1 MB")
     try:
         return path.read_bytes()
     except OSError as e:
-        raise SourceError(f"{rel} niet leesbaar: {e.strerror} (de container draait als uid {os.getuid()})") from e
+        raise SourceError(f"{rel} not readable: {e.strerror} (the container runs as uid {os.getuid()})") from e
 
 
 MAX_FILES = 500

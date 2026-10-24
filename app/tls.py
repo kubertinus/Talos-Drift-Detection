@@ -50,7 +50,7 @@ def _load_certs(pem: bytes) -> list[x509.Certificate]:
     try:
         certs = x509.load_pem_x509_certificates(pem)
     except ValueError as e:
-        raise CertError("Geen geldig PEM-certificaat gevonden.") from e
+        raise CertError("No valid PEM certificate found.") from e
     return certs
 
 
@@ -58,9 +58,9 @@ def _load_key(pem: bytes, passphrase: str | None):
     try:
         return serialization.load_pem_private_key(pem, password=passphrase.encode() if passphrase else None)
     except TypeError as e:
-        raise CertError("De private key is versleuteld: vul de wachtwoordzin in.") from e
+        raise CertError("The private key is encrypted: enter the passphrase.") from e
     except ValueError as e:
-        raise CertError("Geen geldige private key, of verkeerde wachtwoordzin.") from e
+        raise CertError("Not a valid private key, or wrong passphrase.") from e
 
 
 def _public_bytes(public_key) -> bytes:
@@ -89,7 +89,7 @@ def _verify_signatures(chain: list[x509.Certificate]) -> None:
         try:
             child.verify_directly_issued_by(parent)
         except (InvalidSignature, ValueError, TypeError) as e:
-            raise CertError(f"{_cn(child)} is niet ondertekend door {_cn(parent)}.") from e
+            raise CertError(f"{_cn(child)} is not signed by {_cn(parent)}.") from e
 
 
 def _cn(cert: x509.Certificate) -> str:
@@ -103,7 +103,7 @@ def _cn(cert: x509.Certificate) -> str:
             return names[0]
     except x509.ExtensionNotFound:
         pass
-    return cert.subject.rfc4514_string() or "(zonder naam)"
+    return cert.subject.rfc4514_string() or "(no name)"
 
 
 def _names(cert: x509.Certificate) -> list[str]:
@@ -142,9 +142,9 @@ def prepare(cert_pem: bytes, key_pem: bytes, chain_pem: bytes = b"", passphrase:
     key = _load_key(key_pem, passphrase)
     leaf = next((c for c in certs if _public_bytes(c.public_key()) == _public_bytes(key.public_key())), None)
     if leaf is None:
-        raise CertError("De private key hoort bij geen van de certificaten.")
+        raise CertError("The private key does not match any of the certificates.")
     if leaf.not_valid_after_utc < _now():
-        raise CertError(f"Het certificaat is verlopen op {leaf.not_valid_after_utc:%Y-%m-%d}.")
+        raise CertError(f"The certificate expired on {leaf.not_valid_after_utc:%Y-%m-%d}.")
     chain = _order_chain(leaf, [c for c in certs if c is not leaf])
     _verify_signatures(chain)
     served = [c for c in chain if not (_is_self_signed(c) and c is not leaf)]
@@ -223,7 +223,7 @@ def _load_into(ctx: ssl.SSLContext, fullchain: bytes, key_pem: bytes) -> None:
         try:
             ctx.load_cert_chain(cert_path, key_path)
         except ssl.SSLError as e:
-            raise CertError(f"Certificaat kan niet geladen worden: {e.reason or e}") from e
+            raise CertError(f"Certificate cannot be loaded: {e.reason or e}") from e
 
 
 def ensure_certificate() -> None:

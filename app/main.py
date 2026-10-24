@@ -82,7 +82,7 @@ def render(request: Request, name: str, cluster: dict | None = None, **ctx):
 def cluster_or_404(cid: str) -> dict:
     cluster = store.get_cluster(cid)
     if not cluster:
-        raise HTTPException(404, "Cluster niet gevonden")
+        raise HTTPException(404, "Cluster not found")
     return cluster
 
 
@@ -155,9 +155,9 @@ async def login(request: Request, password: str = Form(...)):
     if not config.PASSWORD_ENABLED:
         raise HTTPException(404)
     if auth.rate_limited(request):
-        return _login(request, "Te veel pogingen, probeer het over een paar minuten opnieuw.", 429)
+        return _login(request, "Too many attempts, try again in a few minutes.", 429)
     if not auth.check_password(request, password):
-        return _login(request, "Onjuist wachtwoord.", 401)
+        return _login(request, "Incorrect password.", 401)
     return RedirectResponse("/", status_code=303)
 
 
@@ -169,7 +169,7 @@ async def oidc_login(request: Request):
         return await oidc.login_redirect(request)
     except Exception:
         logging.getLogger("oidc").exception("cannot reach OIDC provider")
-        return _login(request, f"{config.OIDC_PROVIDER_NAME} is niet bereikbaar.", 502)
+        return _login(request, f"{config.OIDC_PROVIDER_NAME} is unreachable.", 502)
 
 
 @app.get("/auth/callback", name="oidc_callback")
@@ -179,10 +179,10 @@ async def oidc_callback(request: Request):
     try:
         user, name, id_token = await oidc.handle_callback(request)
     except oidc.AccessDenied as e:
-        return _login(request, f"{e} heeft geen toegang tot deze app (vereiste rol of groep ontbreekt).", 403)
+        return _login(request, f"{e} has no access to this app (required role or group missing).", 403)
     except oidc.OAuthError as e:
         logging.getLogger("oidc").warning("OIDC login failed: %s", e)
-        return _login(request, f"Inloggen via {config.OIDC_PROVIDER_NAME} mislukt. Probeer het opnieuw.", 400)
+        return _login(request, f"Login via {config.OIDC_PROVIDER_NAME} failed. Please try again.", 400)
     auth.start_session(request, user, name, "oidc")
     # Only kept as logout hint; a small JWT, and the session cookie is signed.
     if id_token and len(id_token) < 2500:
@@ -269,10 +269,10 @@ async def https_selfsigned(request: Request, names: str = Form(...), csrf: str =
     auth.check_csrf(request, csrf)
     wanted = [n.strip() for n in names.replace(",", "\n").splitlines() if n.strip()]
     if not wanted:
-        return _https_back(err="Vul minstens één hostnaam of IP-adres in.")
+        return _https_back(err="Enter at least one hostname or IP address.")
     fullchain, key_pem, chain = tls.self_signed(wanted)
     tls.install(fullchain, key_pem, tls.describe(chain, "selfsigned"))
-    return _https_back(msg="Nieuw self-signed certificaat actief.")
+    return _https_back(msg="New self-signed certificate active.")
 
 
 async def _pem_field(upload: UploadFile | None, text: str) -> bytes:
@@ -298,13 +298,13 @@ async def https_upload(
     key_pem = await _pem_field(key_file, key_text)
     chain_pem = await _pem_field(chain_file, chain_text)
     if not cert_pem.strip() or not key_pem.strip():
-        return _https_back(err="Certificaat en private key zijn verplicht.")
+        return _https_back(err="Certificate and private key are required.")
     try:
         fullchain, key_out, chain = tls.prepare(cert_pem, key_pem, chain_pem, passphrase or None)
         tls.install(fullchain, key_out, tls.describe(chain, "upload"))
     except tls.CertError as e:
         return _https_back(err=str(e))
-    return _https_back(msg=f"Certificaat voor {tls.meta()['subject']} actief.")
+    return _https_back(msg=f"Certificate for {tls.meta()['subject']} active.")
 
 
 @app.post("/settings/https/acme", dependencies=[Depends(auth.require_login)])
@@ -337,11 +337,11 @@ async def https_acme(
         return _https_back(err=error)
     acme.save_settings(s)
     if action == "save":
-        return _https_back(msg="Let's Encrypt-instellingen opgeslagen.")
+        return _https_back(msg="Let's Encrypt settings saved.")
     if acme.is_running():
-        return _https_back(err="Er loopt al een aanvraag.")
+        return _https_back(err="A request is already running.")
     asyncio.create_task(acme.obtain(force=action == "force"))
-    return _https_back(msg="Aanvraag bij Let's Encrypt gestart; dit kan enkele minuten duren.")
+    return _https_back(msg="Let's Encrypt request started; this can take a few minutes.")
 
 
 @app.get("/api/acme/status", dependencies=[Depends(auth.require_login)])
@@ -361,7 +361,7 @@ async def create_cluster(request: Request, name: str = Form(...), csrf: str = Fo
     if not name:
         return RedirectResponse("/settings?new=1", status_code=303)
     cluster = store.add_cluster(name)
-    return _back(cluster["id"], msg=f"Cluster {name} aangemaakt. Kies een basismap en koppel de bestanden.")
+    return _back(cluster["id"], msg=f"Cluster {name} created. Choose a base folder and link the files.")
 
 
 @app.post("/settings/{cid}/rename", dependencies=[Depends(auth.require_login)])
@@ -370,7 +370,7 @@ async def rename_cluster(request: Request, cid: str, name: str = Form(...), csrf
     cluster_or_404(cid)
     if name.strip():
         store.rename_cluster(cid, name.strip()[:60])
-    return _back(cid, msg="Naam opgeslagen")
+    return _back(cid, msg="Name saved")
 
 
 @app.post("/settings/{cid}/delete", dependencies=[Depends(auth.require_login)])
@@ -406,7 +406,7 @@ def _latest_node(cid: str, address: str) -> tuple[dict | None, dict]:
     scan = store.latest(cid)
     node = next((n for n in (scan or {}).get("nodes", []) if n["address"] == address), None)
     if not node:
-        raise HTTPException(404, "Node niet gevonden in laatste scan")
+        raise HTTPException(404, "Node not found in latest scan")
     return scan, node
 
 
@@ -422,7 +422,7 @@ async def node_config(cid: str, address: str):
     cluster_or_404(cid)
     _, node = _latest_node(cid, address)
     if not node.get("config"):
-        raise HTTPException(404, "Geen config van deze node in de laatste scan")
+        raise HTTPException(404, "No config for this node in the latest scan")
     name = re.sub(r"[^A-Za-z0-9._-]+", "_", node.get("hostname") or address)
     return PlainTextResponse(
         node["config"],
@@ -465,14 +465,14 @@ async def upload(request: Request, cid: str, kind: str, file: UploadFile = File(
         raise HTTPException(404)
     data = await file.read(MAX_UPLOAD + 1)
     if len(data) > MAX_UPLOAD:
-        return _back(cid, err="Bestand te groot (max 1 MB)")
+        return _back(cid, err="File too large (max 1 MB)")
     error = scanner.validate_upload(kind, data)
     if error:
         return _back(cid, err=error)
     sources.save_upload(cid, kind, data)
     del data
     scanner.request(cid)
-    return _back(cid, msg=f"{UPLOAD_KINDS[kind]} versleuteld opgeslagen")
+    return _back(cid, msg=f"{UPLOAD_KINDS[kind]} stored encrypted")
 
 
 @app.post("/settings/{cid}/base_dir", dependencies=[Depends(auth.require_login)])
@@ -485,7 +485,7 @@ async def set_base_dir(request: Request, cid: str, path: str = Form(""), csrf: s
         return _back(cid, err=str(e))
     sources.set_base_dir(cid, path)
     scanner.request(cid)
-    return _back(cid, msg=f"Basismap ingesteld op ~/{sources.base_dir(cid).lstrip('.')}")
+    return _back(cid, msg=f"Base folder set to ~/{sources.base_dir(cid).lstrip('.')}")
 
 
 @app.post("/settings/{cid}/link/{kind}", dependencies=[Depends(auth.require_login)])
@@ -504,7 +504,7 @@ async def link_file(request: Request, cid: str, kind: str, path: str = Form(...)
     sources.remove(cid, kind)  # the linked file replaces any earlier upload
     sources.link(cid, kind, path)
     scanner.request(cid)
-    return _back(cid, msg=f"{UPLOAD_KINDS[kind]} gekoppeld aan {path}")
+    return _back(cid, msg=f"{UPLOAD_KINDS[kind]} linked to {path}")
 
 
 @app.post("/settings/{cid}/delete/{kind}", dependencies=[Depends(auth.require_login)])
@@ -514,7 +514,7 @@ async def delete_file(request: Request, cid: str, kind: str, csrf: str = Form(..
     if kind not in UPLOAD_KINDS:
         raise HTTPException(404)
     sources.remove(cid, kind)
-    return _back(cid, msg=f"{UPLOAD_KINDS[kind]} verwijderd")
+    return _back(cid, msg=f"{UPLOAD_KINDS[kind]} removed")
 
 
 def _target(target: str, node_name: str) -> str:
@@ -543,21 +543,21 @@ async def upload_patches(
     cluster_or_404(cid)
     target = _target(target, node_name)
     if not patches.valid_target(target):
-        return _back(cid, "#patches", err="Kies een geldig doel (bij een specifieke node: vul de hostname of het IP in).")
+        return _back(cid, "#patches", err="Choose a valid target (for a specific node: enter the hostname or IP).")
     node_role = _node_role(cid, target)
     added = []
     for f in files:
         data = await f.read(MAX_UPLOAD + 1)
         name = Path(f.filename or "patch.yaml").name
         if len(data) > MAX_UPLOAD:
-            return _back(cid, "#patches", err=f"{name}: bestand te groot (max 1 MB)")
+            return _back(cid, "#patches", err=f"{name}: file too large (max 1 MB)")
         error = patches.check_yaml(data) or await patches.try_apply(cid, data, target, node_role)
         if error:
             return _back(cid, "#patches", err=f"{name}: {error}")
         patches.add(cid, name, data, target)
         added.append(name)
     scanner.request(cid)
-    return _back(cid, "#patches", msg=f"{', '.join(added)} toegevoegd voor {patches.target_label(target).lower()}; opnieuw scannen gestart")
+    return _back(cid, "#patches", msg=f"{', '.join(added)} added for {patches.target_label(target).lower()}; rescan started")
 
 
 @app.post("/settings/{cid}/patches/link", dependencies=[Depends(auth.require_login)])
@@ -573,9 +573,9 @@ async def link_patches(
     cluster_or_404(cid)
     target = _target(target, node_name)
     if not paths:
-        return _back(cid, "#patches", err="Selecteer minstens één bestand.")
+        return _back(cid, "#patches", err="Select at least one file.")
     if not patches.valid_target(target):
-        return _back(cid, "#patches", err="Kies een geldig doel (bij een specifieke node: vul de hostname of het IP in).")
+        return _back(cid, "#patches", err="Choose a valid target (for a specific node: enter the hostname or IP).")
     node_role = _node_role(cid, target)
     for rel in paths:
         try:
@@ -588,7 +588,7 @@ async def link_patches(
     for rel in paths:
         patches.add_link(cid, rel, target)
     scanner.request(cid)
-    return _back(cid, "#patches", msg=f"{len(paths)} patch(es) gekoppeld voor {patches.target_label(target).lower()}; opnieuw scannen gestart")
+    return _back(cid, "#patches", msg=f"{len(paths)} patch(es) linked for {patches.target_label(target).lower()}; rescan started")
 
 
 @app.post("/settings/{cid}/patches/{patch_id}/{action}", dependencies=[Depends(auth.require_login)])
@@ -610,12 +610,12 @@ async def patch_action(
     elif action == "target":
         target = _target(target, node_name)
         if not patches.valid_target(target):
-            return _back(cid, "#patches", err="Ongeldig doel")
+            return _back(cid, "#patches", err="Invalid target")
         patches.set_target(cid, patch_id, target)
     else:
         raise HTTPException(404)
     scanner.request(cid)
-    return _back(cid, "#patches", msg="Patches bijgewerkt; opnieuw scannen gestart")
+    return _back(cid, "#patches", msg="Patches updated; rescan started")
 
 
 @app.post("/settings/{cid}/general", dependencies=[Depends(auth.require_login)])
@@ -637,7 +637,7 @@ async def save_general(
     s["scan_interval"] = max(60, scan_interval)
     store.save_settings(cid, s)
     scanner.request(cid)
-    return _back(cid, msg="Instellingen opgeslagen")
+    return _back(cid, msg="Settings saved")
 
 
 # --- api -----------------------------------------------------------------

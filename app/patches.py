@@ -37,9 +37,9 @@ def all_patches(cid: str) -> list[dict]:
 
 def target_label(target: str) -> str:
     if target == "all":
-        return "Alle nodes"
+        return "All nodes"
     if target in ROLES:
-        return "Controlplanes" if target == "controlplane" else "Workers"
+        return "Control planes" if target == "controlplane" else "Workers"
     return f"Node {target.removeprefix('node:')}"
 
 
@@ -137,9 +137,9 @@ def check_yaml(data: bytes) -> str | None:
     except yaml.YAMLError as e:
         # Don't echo the parser message: it can quote file content.
         mark = getattr(e, "problem_mark", None)
-        return f"Geen geldige YAML (regel {mark.line + 1})" if mark else "Geen geldige YAML"
+        return f"Invalid YAML (line {mark.line + 1})" if mark else "Invalid YAML"
     if not docs or not all(isinstance(d, (dict, list)) for d in docs):
-        return "Geen patch gevonden (verwacht een strategic merge- of JSON6902-patch)."
+        return "No patch found (expected a strategic merge or JSON6902 patch)."
     return None
 
 
@@ -152,7 +152,7 @@ async def build_baseline(cid: str, role: str, patch_list: list[dict]) -> str:
             return await talos.patch_config(base, paths)
         except (talos.TalosError, sources.SourceError) as e:
             names = ", ".join(p["name"] for p in patch_list)
-            raise talos.TalosError(f"Patches ({names}) niet toe te passen: {e}") from e
+            raise talos.TalosError(f"Patches ({names}) cannot be applied: {e}") from e
 
 
 async def try_apply(cid: str, data: bytes, target: str, node_role: str | None = None) -> str | None:
@@ -176,7 +176,7 @@ async def try_apply(cid: str, data: bytes, target: str, node_role: str | None = 
     try:
         for role in roles:
             try:
-                await build_baseline(cid, role, [{"id": tmp_id, "name": "nieuwe patch"}])
+                await build_baseline(cid, role, [{"id": tmp_id, "name": "new patch"}])
             except talos.TalosError as e:
                 errors[role] = str(e).split(": ", 1)[-1]
     finally:
@@ -184,4 +184,4 @@ async def try_apply(cid: str, data: bytes, target: str, node_role: str | None = 
     if not errors or (target.startswith("node:") and len(errors) < len(roles)):
         return None
     role, msg = next(iter(errors.items()))
-    return f"Patch past niet op {role}.yaml: {msg}"
+    return f"Patch does not apply to {role}.yaml: {msg}"

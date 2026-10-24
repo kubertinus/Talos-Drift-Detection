@@ -79,29 +79,29 @@ def test_everything_in_one_file(pki):
 
 
 def test_wrong_key(pki):
-    with pytest.raises(tls.CertError, match="hoort bij geen"):
+    with pytest.raises(tls.CertError, match="does not match any"):
         tls.prepare(_pem(pki["leaf"]), _key_pem(ec.generate_private_key(ec.SECP256R1())))
 
 
 def test_expired(pki):
     old = _cert("old.example.com", pki["leaf_key"], "Test Intermediate", pki["int_key"], ca=False, days=10,
                 start=NOW - dt.timedelta(days=100))
-    with pytest.raises(tls.CertError, match="verlopen"):
+    with pytest.raises(tls.CertError, match="expired"):
         tls.prepare(_pem(old), _key_pem(pki["leaf_key"]))
 
 
 def test_bad_signature(pki):
     other_key = ec.generate_private_key(ec.SECP256R1())
     fake_inter = _cert("Test Intermediate", other_key, "Test Root", other_key, ca=True)
-    with pytest.raises(tls.CertError, match="niet ondertekend"):
+    with pytest.raises(tls.CertError, match="not signed"):
         tls.prepare(_pem(pki["leaf"]), _key_pem(pki["leaf_key"]), _pem(fake_inter))
 
 
 def test_encrypted_key(pki):
-    key = _key_pem(pki["leaf_key"], "geheim")
-    with pytest.raises(tls.CertError, match="wachtwoordzin"):
+    key = _key_pem(pki["leaf_key"], "s3cret")
+    with pytest.raises(tls.CertError, match="passphrase"):
         tls.prepare(_pem(pki["leaf"]), key)
-    fullchain, key_out, _ = tls.prepare(_pem(pki["leaf"]), key, passphrase="geheim")
+    fullchain, key_out, _ = tls.prepare(_pem(pki["leaf"]), key, passphrase="s3cret")
     assert b"ENCRYPTED" not in key_out
 
 

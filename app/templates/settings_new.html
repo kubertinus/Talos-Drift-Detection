@@ -1,14 +1,14 @@
 {% extends "settings_layout.html" %}
-{% block title %}Nieuw cluster · Talos Drift Detection{% endblock %}
+{% block title %}New cluster · Talos Drift Detection{% endblock %}
 {% block settings %}
-<h1 class="text-2xl font-semibold text-white mb-2">Nieuw cluster</h1>
+<h1 class="text-2xl font-semibold text-white mb-2">New cluster</h1>
 <p class="text-sm text-slate-400 mb-6">
-  Geef het cluster een naam. Daarna kies je de basismap met de talosconfig, controlplane.yaml,
-  worker.yaml en eventuele patches.
+  Give the cluster a name. Then choose the base folder with the talosconfig, controlplane.yaml,
+  worker.yaml and any patches.
 </p>
 <form method="post" action="/settings/new" class="card p-5 flex flex-wrap gap-3 max-w-xl">
   <input type="hidden" name="csrf" value="{{ csrf }}">
-  <input name="name" required maxlength="60" autofocus class="input flex-1 min-w-[12rem]" placeholder="Naam, bijv. productie">
-  <button class="btn-primary">Toevoegen</button>
+  <input name="name" required maxlength="60" autofocus class="input flex-1 min-w-[12rem]" placeholder="Name, e.g. production">
+  <button class="btn-primary">Add</button>
 </form>
 {% endblock %}

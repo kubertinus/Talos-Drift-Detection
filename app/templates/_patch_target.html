@@ -1,16 +1,16 @@
 <div class="flex flex-wrap items-end gap-4" x-data="{ target: 'all' }">
   <label class="block">
-    <span class="text-sm text-slate-300">Geldt voor</span>
+    <span class="text-sm text-slate-300">Applies to</span>
     <select name="target" x-model="target" class="input mt-2 w-auto">
-      <option value="all">Alle nodes</option>
-      <option value="controlplane">Controlplanes</option>
+      <option value="all">All nodes</option>
+      <option value="controlplane">Control planes</option>
       <option value="worker">Workers</option>
-      <option value="node">Specifieke node</option>
+      <option value="node">Specific node</option>
     </select>
   </label>
   <label class="block" x-show="target === 'node'">
     <span class="text-sm text-slate-300">Node</span>
-    <input name="node_name" list="known-nodes" class="input mt-2 w-48" placeholder="hostname of IP">
+    <input name="node_name" list="known-nodes" class="input mt-2 w-48" placeholder="hostname or IP">
   </label>
-  <button class="btn-secondary">Toevoegen</button>
+  <button class="btn-secondary">Add</button>
 </div>

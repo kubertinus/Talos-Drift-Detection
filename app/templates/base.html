@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="nl" class="h-full">
+<html lang="en" class="h-full">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -20,16 +20,16 @@
         Talos Drift Detection
       </a>
       <nav class="flex items-center gap-1 text-sm">
-        <a href="/" class="nav-link {% if request.url.path == '/' or request.url.path.startswith('/c/') %}active{% endif %}">Overzicht</a>
-        <a href="/settings" class="nav-link {% if request.url.path.startswith('/settings') %}active{% endif %}">Instellingen</a>
+        <a href="/" class="nav-link {% if request.url.path == '/' or request.url.path.startswith('/c/') %}active{% endif %}">Overview</a>
+        <a href="/settings" class="nav-link {% if request.url.path.startswith('/settings') %}active{% endif %}">Settings</a>
       </nav>
       <div class="ml-auto flex items-center gap-3" x-data="scanner({{ 'true' if running else 'false' }}, {{ (cluster.id if cluster else '') | tojson | forceescape }})">
         <button @click="scan()" :disabled="running" class="btn-primary">
           <svg x-show="running" class="w-4 h-4 animate-spin" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="3" opacity=".25"/><path d="M22 12a10 10 0 0 0-10-10" stroke="currentColor" stroke-width="3"/></svg>
-          <span x-text="running ? 'Scannen…' : '{{ 'Nu scannen' if cluster else 'Alles scannen' }}'"></span>
+          <span x-text="running ? 'Scanning…' : '{{ 'Scan now' if cluster else 'Scan all' }}'"></span>
         </button>
-        {% if user_name %}<span class="hidden sm:inline text-sm text-slate-400" title="Ingelogd als {{ user_name }}">{{ user_name }}</span>{% endif %}
-        <form method="post" action="/logout"><button class="text-sm text-slate-400 hover:text-white">Uitloggen</button></form>
+        {% if user_name %}<span class="hidden sm:inline text-sm text-slate-400" title="Logged in as {{ user_name }}">{{ user_name }}</span>{% endif %}
+        <form method="post" action="/logout"><button class="text-sm text-slate-400 hover:text-white">Log out</button></form>
       </div>
     </div>
   </header>

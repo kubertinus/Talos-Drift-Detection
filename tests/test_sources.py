@@ -81,7 +81,7 @@ def test_unreadable_file_gives_clear_error(home, tmp_path):
     try:
         if os.access(f, os.R_OK):
             pytest.skip("running as root")
-        with pytest.raises(sources.SourceError, match="niet leesbaar"):
+        with pytest.raises(sources.SourceError, match="not readable"):
             sources.read("c1", "patch/a.yaml")
     finally:
         f.chmod(0o644)

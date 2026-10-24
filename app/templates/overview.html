@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}Overzicht · Talos Drift Detection{% endblock %}
+{% block title %}Overview · Talos Drift Detection{% endblock %}
 {% block content %}
 <div class="flex flex-wrap items-baseline justify-between gap-2 mb-6">
   <h1 class="text-2xl font-semibold text-white">Clusters</h1>
@@ -8,15 +8,15 @@
 
 {% if not cards %}
 <div class="card p-10 text-center">
-  <div class="text-white font-medium">Nog geen clusters</div>
-  <p class="text-sm text-slate-400 mt-1">Voeg je eerste cluster toe onder <a href="/settings?new=1" class="text-orange-300 hover:underline">Instellingen</a>.</p>
+  <div class="text-white font-medium">No clusters yet</div>
+  <p class="text-sm text-slate-400 mt-1">Add your first cluster under <a href="/settings?new=1" class="text-orange-300 hover:underline">Settings</a>.</p>
 </div>
 {% endif %}
 
 {% if cards %}
 <div class="grid grid-cols-2 md:grid-cols-5 gap-3 mb-10">
   <div class="card p-4">
-    <div class="text-xs uppercase tracking-wide text-slate-400">Clusters in orde</div>
+    <div class="text-xs uppercase tracking-wide text-slate-400">Healthy clusters</div>
     <div class="mt-1 text-3xl font-semibold text-white">{{ totals.healthy_clusters }}<span class="text-lg text-slate-500">/{{ cards | length }}</span></div>
   </div>
   <div class="card p-4">
@@ -28,11 +28,11 @@
     <div class="mt-1 text-3xl font-semibold text-amber-400">{{ totals.drift }}</div>
   </div>
   <div class="card p-4">
-    <div class="text-xs uppercase tracking-wide text-slate-400">Onbereikbaar / fout</div>
+    <div class="text-xs uppercase tracking-wide text-slate-400">Unreachable / error</div>
     <div class="mt-1 text-3xl font-semibold text-rose-400">{{ totals.unreachable + totals.patch_error }}</div>
   </div>
   <div class="card p-4 col-span-2 md:col-span-1">
-    <div class="text-xs uppercase tracking-wide text-slate-400">Nodes totaal</div>
+    <div class="text-xs uppercase tracking-wide text-slate-400">Total nodes</div>
     <div class="mt-1 text-3xl font-semibold text-white">{{ totals.nodes }}</div>
   </div>
 </div>
@@ -45,21 +45,21 @@
       <div class="min-w-0">
         <div class="text-lg font-semibold text-white truncate">{{ c.name }}</div>
         <div class="text-xs text-slate-400 mt-0.5">
-          {% if c.running %}<span class="text-orange-300">bezig met scannen…</span>
-          {% elif c.missing %}nog niet ingesteld
-          {% elif c.scan %}gescand <time class="rel" datetime="{{ c.scan.finished_at }}">{{ c.scan.finished_at }}</time>
-          {% else %}nog niet gescand{% endif %}
+          {% if c.running %}<span class="text-orange-300">scanning…</span>
+          {% elif c.missing %}not set up yet
+          {% elif c.scan %}scanned <time class="rel" datetime="{{ c.scan.finished_at }}">{{ c.scan.finished_at }}</time>
+          {% else %}not scanned yet{% endif %}
         </div>
       </div>
-      {% if c.health == 'in-sync' %}<span class="badge badge-ok">in orde</span>
+      {% if c.health == 'in-sync' %}<span class="badge badge-ok">OK</span>
       {% elif c.health == 'drift' %}<span class="badge badge-warn">drift</span>
-      {% elif c.health == 'error' %}<span class="badge badge-err">fout</span>
-      {% else %}<span class="badge badge-muted">instellen</span>{% endif %}
+      {% elif c.health == 'error' %}<span class="badge badge-err">error</span>
+      {% else %}<span class="badge badge-muted">set up</span>{% endif %}
     </div>
 
     {% if c.missing %}
     <div class="mt-4 text-sm text-slate-400">
-      Nog niet ingesteld: <span class="text-slate-200">{{ c.missing | join(', ') }}</span>.
+      Not set up yet: <span class="text-slate-200">{{ c.missing | join(', ') }}</span>.
     </div>
     {% elif c.scan and c.scan.error %}
     <div class="mt-4 text-sm text-rose-300 line-clamp-2" title="{{ c.scan.error }}">{{ c.scan.error }}</div>
@@ -67,7 +67,7 @@
 
     {% if c.nodes %}
     <div class="mt-4 space-y-3">
-      {% for role, label in [('controlplane', 'Controlplanes'), ('worker', 'Workers')] %}
+      {% for role, label in [('controlplane', 'Control planes'), ('worker', 'Workers')] %}
       {% set s = c.summary[role] %}
       {% if s.total %}
       <div>
@@ -76,7 +76,7 @@
           <span class="text-slate-400">
             {% if s.in_sync %}<span class="text-emerald-400">{{ s.in_sync }} in sync</span>{% endif %}
             {% if s.drift %} · <span class="text-amber-400">{{ s.drift }} drift</span>{% endif %}
-            {% if s.unreachable + s.patch_error %} · <span class="text-rose-400">{{ s.unreachable + s.patch_error }} fout</span>{% endif %}
+            {% if s.unreachable + s.patch_error %} · <span class="text-rose-400">{{ s.unreachable + s.patch_error }} error</span>{% endif %}
           </span>
         </div>
         <div class="flex flex-wrap gap-1.5">
@@ -90,7 +90,7 @@
       {% endfor %}
       {% set others = c.nodes | rejectattr('role', 'in', ['controlplane', 'worker']) | list %}
       {% if others %}
-      <div class="text-xs text-slate-400">{{ others | length }} node(s) met onbekende rol</div>
+      <div class="text-xs text-slate-400">{{ others | length }} node(s) with unknown role</div>
       {% endif %}
     </div>
     {% endif %}

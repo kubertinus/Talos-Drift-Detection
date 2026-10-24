@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}Inloggen · Talos Drift Detection{% endblock %}
+{% block title %}Log in · Talos Drift Detection{% endblock %}
 {% block body %}
 <div class="min-h-full flex items-center justify-center px-4">
   <div class="card w-full max-w-sm p-8 space-y-5">
@@ -12,21 +12,21 @@
     {% if oidc_enabled %}
     <a href="/auth/login" class="btn-primary w-full justify-center">
       <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4M10 17l5-5-5-5M15 12H3"/></svg>
-      Inloggen met {{ provider }}
+      Log in with {{ provider }}
     </a>
     {% endif %}
 
     {% if oidc_enabled and password_enabled %}
-    <div class="flex items-center gap-3 text-xs text-slate-500"><div class="h-px flex-1 bg-slate-800"></div>of<div class="h-px flex-1 bg-slate-800"></div></div>
+    <div class="flex items-center gap-3 text-xs text-slate-500"><div class="h-px flex-1 bg-slate-800"></div>or<div class="h-px flex-1 bg-slate-800"></div></div>
     {% endif %}
 
     {% if password_enabled %}
     <form method="post" action="/login" class="space-y-4">
       <label class="block">
-        <span class="text-sm text-slate-400">Admin-wachtwoord</span>
+        <span class="text-sm text-slate-400">Admin password</span>
         <input type="password" name="password" {% if not oidc_enabled %}autofocus{% endif %} required autocomplete="current-password" class="input mt-1">
       </label>
-      <button class="{{ 'btn-secondary' if oidc_enabled else 'btn-primary' }} w-full justify-center">Inloggen</button>
+      <button class="{{ 'btn-secondary' if oidc_enabled else 'btn-primary' }} w-full justify-center">Log in</button>
     </form>
     {% endif %}
   </div>

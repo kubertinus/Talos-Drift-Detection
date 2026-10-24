@@ -56,10 +56,10 @@ async def _targets(tc_path: str, tc_text: str, settings: dict) -> tuple[list[dic
         except talos.TalosError as e:
             log.warning("discovery via %s failed: %s", via, e)
             if not manual:
-                return [], f"Discovery via {via} mislukt: {e}", direct
+                return [], f"Discovery via {via} failed: {e}", direct
     if not manual:
-        hint = " De talosconfig heeft geen endpoints." if direct else ""
-        return [], f"Geen nodes gevonden: stel een discovery node of handmatige nodelijst in.{hint}", direct
+        hint = " The talosconfig has no endpoints." if direct else ""
+        return [], f"No nodes found: set a discovery node or a manual node list.{hint}", direct
     return [{"address": a, "hostname": a, "role": "unknown"} for a in manual], None, direct
 
 
@@ -145,7 +145,7 @@ async def _scan_once(cid: str) -> dict:
         scan["error"] = str(e)
     baselines = Baselines(cid, raw, patches.all_patches(cid))
     if not tc_text:
-        scan["error"] = scan["error"] or "Geen talosconfig geüpload of gekoppeld."
+        scan["error"] = scan["error"] or "No talosconfig uploaded or linked."
     else:
         with sources.materialize(cid, "talosconfig") as tc_path:
             members, err, direct = await _targets(tc_path, tc_text.decode(), settings)
@@ -205,17 +205,17 @@ def validate_upload(kind: str, data: bytes) -> str | None:
     except yaml.YAMLError as e:
         # Don't echo the parser message: it can quote file content (secrets).
         mark = getattr(e, "problem_mark", None)
-        return f"Geen geldige YAML (regel {mark.line + 1})" if mark else "Geen geldige YAML"
+        return f"Invalid YAML (line {mark.line + 1})" if mark else "Invalid YAML"
     if kind == "talosconfig":
         d = docs[0] if docs else None
         if not isinstance(d, dict) or "contexts" not in d:
-            return "Dit lijkt geen talosconfig (geen 'contexts')."
+            return "This does not look like a talosconfig (no 'contexts')."
         return None
     main = next((d for d in docs if isinstance(d, dict) and d.get("version") == "v1alpha1"), None)
     if not main:
-        return "Geen v1alpha1 machineconfig-document gevonden."
+        return "No v1alpha1 machine config document found."
     mtype = (main.get("machine") or {}).get("type")
     expected = {"controlplane": ("controlplane", "init"), "worker": ("worker",)}[kind]
     if mtype not in expected:
-        return f"machine.type is '{mtype}', verwacht {expected[0]}."
+        return f"machine.type is '{mtype}', expected {expected[0]}."
     return None

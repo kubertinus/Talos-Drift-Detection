@@ -1,20 +1,20 @@
 {% extends "settings_layout.html" %}
-{% block title %}Instellingen {{ cluster.name }} · Talos Drift Detection{% endblock %}
+{% block title %}Settings {{ cluster.name }} · Talos Drift Detection{% endblock %}
 {% block settings %}
 <div class="flex flex-wrap items-center justify-between gap-4 mb-6">
   <div>
     <h1 class="text-2xl font-semibold text-white">{{ cluster.name }}</h1>
-    <a href="/c/{{ cluster.id }}" class="text-sm text-slate-400 hover:text-white">Naar dashboard &rarr;</a>
+    <a href="/c/{{ cluster.id }}" class="text-sm text-slate-400 hover:text-white">To dashboard &rarr;</a>
   </div>
   <div class="flex items-center gap-3">
     <form method="post" action="/settings/{{ cluster.id }}/rename" class="flex gap-2">
       <input type="hidden" name="csrf" value="{{ csrf }}">
-      <input name="name" value="{{ cluster.name }}" maxlength="60" required class="input py-1.5 text-sm w-48" aria-label="Clusternaam">
-      <button class="btn-secondary">Hernoemen</button>
+      <input name="name" value="{{ cluster.name }}" maxlength="60" required class="input py-1.5 text-sm w-48" aria-label="Cluster name">
+      <button class="btn-secondary">Rename</button>
     </form>
-    <form method="post" action="/settings/{{ cluster.id }}/delete" onsubmit="return confirmSubmit(event, 'Cluster {{ cluster.name }} verwijderen? Instellingen, koppelingen, uploads en scanresultaten van dit cluster worden gewist. Bestanden in de basismap blijven staan.')">
+    <form method="post" action="/settings/{{ cluster.id }}/delete" onsubmit="return confirmSubmit(event, 'Delete cluster {{ cluster.name }}? Settings, links, uploads and scan results of this cluster are erased. Files in the base folder are left alone.')">
       <input type="hidden" name="csrf" value="{{ csrf }}">
-      <button class="text-sm text-rose-400 hover:text-rose-300">Cluster verwijderen</button>
+      <button class="text-sm text-rose-400 hover:text-rose-300">Delete cluster</button>
     </form>
   </div>
 </div>
@@ -23,18 +23,18 @@
 
 {% if config_dir %}
 <section class="mb-10" x-data="folderPicker({{ base_dir | tojson | forceescape }})">
-  <h2 class="text-lg font-semibold text-white">Basismap</h2>
+  <h2 class="text-lg font-semibold text-white">Base folder</h2>
   <p class="text-sm text-slate-400 mb-4">
-    De map waaruit je hieronder de bestanden kiest. Koppelingen zijn relatief aan deze map, dus bij een
-    ander cluster met dezelfde indeling (<code>_out/</code>, <code>patch/</code>) blijven ze werken.
+    The folder you choose the files below from. Links are relative to this folder, so they keep working
+    for another cluster with the same layout (<code>_out/</code>, <code>patch/</code>).
   </p>
   <div class="card p-5">
     <div class="flex flex-wrap items-center gap-3">
-      <span class="text-sm text-slate-400">Huidig:</span>
+      <span class="text-sm text-slate-400">Current:</span>
       {% if base_dir %}<span class="font-mono text-sm text-white">~/{{ '' if base_dir == '.' else base_dir }}</span>
-        {% if base_ok %}<span class="badge badge-ok">gevonden</span>{% else %}<span class="badge badge-err">niet gevonden</span>{% endif %}
-      {% else %}<span class="badge badge-muted">niet ingesteld</span>{% endif %}
-      <button type="button" class="btn-secondary ml-auto" @click="toggle()" x-text="open ? 'Sluiten' : 'Wijzigen'"></button>
+        {% if base_ok %}<span class="badge badge-ok">found</span>{% else %}<span class="badge badge-err">not found</span>{% endif %}
+      {% else %}<span class="badge badge-muted">not set</span>{% endif %}
+      <button type="button" class="btn-secondary ml-auto" @click="toggle()" x-text="open ? 'Close' : 'Change'"></button>
     </div>
     <div x-show="open" x-cloak class="mt-4">
       <div class="flex items-center gap-2 text-sm mb-2 font-mono">
@@ -49,13 +49,13 @@
             <span x-show="d.talos" class="badge badge-warn ml-auto">Talos</span>
           </button>
         </template>
-        <div x-show="!cwd.dirs.length" class="px-3 py-2 text-xs text-slate-500" x-text="error || (cwd.path ? 'Geen submappen.' : 'Geen submappen in de gekoppelde map. Klopt CONFIG_HOST_DIR?')"></div>
+        <div x-show="!cwd.dirs.length" class="px-3 py-2 text-xs text-slate-500" x-text="error || (cwd.path ? 'No subfolders.' : 'No subfolders in the mounted folder. Is CONFIG_HOST_DIR correct?')"></div>
       </div>
       <form method="post" action="/settings/{{ cluster.id }}/base_dir" class="mt-3 flex items-center gap-3">
         <input type="hidden" name="csrf" value="{{ csrf }}">
         <input type="hidden" name="path" :value="cwd.path || '.'">
-        <button class="btn-primary">Gebruik <span class="font-mono" x-text="'~/' + cwd.path"></span></button>
-        <span class="text-xs text-slate-500">Mappen met <span class="badge badge-warn">Talos</span> bevatten een talosconfig of controlplane.yaml.</span>
+        <button class="btn-primary">Use <span class="font-mono" x-text="'~/' + cwd.path"></span></button>
+        <span class="text-xs text-slate-500">Folders marked <span class="badge badge-warn">Talos</span> contain a talosconfig or controlplane.yaml.</span>
       </form>
     </div>
   </div>
@@ -63,52 +63,52 @@
 {% endif %}
 
 <section class="mb-10">
-  <h2 class="text-lg font-semibold text-white">Bestanden</h2>
+  <h2 class="text-lg font-semibold text-white">Files</h2>
   <p class="text-sm text-slate-400 mb-4">
-    {% if config_dir %}Kies een bestand uit de basismap (wordt bij elke scan live gelezen, alleen de verwijzing wordt opgeslagen), of upload er een (versleuteld opgeslagen, daarna niet meer in te zien).
-    {% else %}Upload de bestanden; ze worden versleuteld opgeslagen en zijn daarna niet meer in te zien. Tip: mount een map op <code>/configs</code> om bestanden direct te kunnen kiezen.{% endif %}
+    {% if config_dir %}Choose a file from the base folder (read live on every scan; only the reference is stored), or upload one (stored encrypted, cannot be viewed afterwards).
+    {% else %}Upload the files; they are stored encrypted and cannot be viewed afterwards. Tip: mount a folder at <code>/configs</code> to choose files directly.{% endif %}
   </p>
   <div class="grid gap-4 md:grid-cols-3">
     {% for kind, f in files.items() %}
     <div class="card p-5 flex flex-col" x-data="{ mode: '{{ 'upload' if (not config_dir) or (f.info and f.info.source == 'upload') else 'file' }}' }">
       <div class="flex items-center justify-between">
         <div class="font-medium text-white">{{ f.label }}</div>
-        {% if f.info and f.info.error %}<span class="badge badge-err">niet gevonden</span>
-        {% elif f.info and f.info.source == 'file' %}<span class="badge badge-ok">gekoppeld</span>
-        {% elif f.info %}<span class="badge badge-ok">geüpload</span>
-        {% else %}<span class="badge badge-muted">ontbreekt</span>{% endif %}
+        {% if f.info and f.info.error %}<span class="badge badge-err">not found</span>
+        {% elif f.info and f.info.source == 'file' %}<span class="badge badge-ok">linked</span>
+        {% elif f.info %}<span class="badge badge-ok">uploaded</span>
+        {% else %}<span class="badge badge-muted">missing</span>{% endif %}
       </div>
       {% if f.info %}
       <dl class="mt-3 text-xs text-slate-400 space-y-1">
-        {% if f.info.source == 'file' %}<div>Bestand <span class="font-mono text-slate-200 break-all">{{ f.info.path }}</span></div>{% endif %}
+        {% if f.info.source == 'file' %}<div>File <span class="font-mono text-slate-200 break-all">{{ f.info.path }}</span></div>{% endif %}
         {% if f.info.error %}<div class="text-rose-300">{{ f.info.error }}</div>{% else %}
         <div>SHA-256 <span class="font-mono text-slate-300">{{ f.info.fingerprint }}…</span></div>
-        <div>Gewijzigd <time class="rel" datetime="{{ f.info.updated }}">{{ f.info.updated }}</time></div>{% endif %}
+        <div>Modified <time class="rel" datetime="{{ f.info.updated }}">{{ f.info.updated }}</time></div>{% endif %}
       </dl>
       {% endif %}
       {% if config_dir %}
       <div class="mt-4 flex gap-1 text-xs">
-        <button type="button" @click="mode='file'" :class="mode=='file' ? 'bg-slate-700 text-white' : 'text-slate-400'" class="px-2.5 py-1 rounded-md">Uit map</button>
-        <button type="button" @click="mode='upload'" :class="mode=='upload' ? 'bg-slate-700 text-white' : 'text-slate-400'" class="px-2.5 py-1 rounded-md">Uploaden</button>
+        <button type="button" @click="mode='file'" :class="mode=='file' ? 'bg-slate-700 text-white' : 'text-slate-400'" class="px-2.5 py-1 rounded-md">From folder</button>
+        <button type="button" @click="mode='upload'" :class="mode=='upload' ? 'bg-slate-700 text-white' : 'text-slate-400'" class="px-2.5 py-1 rounded-md">Upload</button>
       </div>
       <form x-show="mode=='file'" method="post" action="/settings/{{ cluster.id }}/link/{{ kind }}" class="mt-3 space-y-2">
         <input type="hidden" name="csrf" value="{{ csrf }}">
         <select name="path" required class="input text-xs font-mono">
-          <option value="">{{ '— kies bestand —' if base_ok else '— kies eerst een basismap —' }}</option>
+          <option value="">{{ '— choose file —' if base_ok else '— choose a base folder first —' }}</option>
           {% for hf in host_files %}<option value="{{ hf }}" {% if f.info and f.info.path == hf %}selected{% endif %}>{{ hf }}</option>{% endfor %}
         </select>
-        <button class="btn-secondary w-full justify-center">Koppelen</button>
+        <button class="btn-secondary w-full justify-center">Link</button>
       </form>
       {% endif %}
       <form x-show="mode=='upload'" method="post" action="/settings/{{ cluster.id }}/upload/{{ kind }}" enctype="multipart/form-data" class="mt-3 space-y-2">
         <input type="hidden" name="csrf" value="{{ csrf }}">
         <input type="file" name="file" required class="file-input">
-        <button class="btn-secondary w-full justify-center">{{ 'Vervangen' if f.info else 'Uploaden' }}</button>
+        <button class="btn-secondary w-full justify-center">{{ 'Replace' if f.info else 'Upload' }}</button>
       </form>
       {% if f.info %}
-      <form method="post" action="/settings/{{ cluster.id }}/delete/{{ kind }}" class="mt-2" onsubmit="return confirmSubmit(event, '{{ f.label }} {{ 'ontkoppelen' if f.info.source == 'file' else 'verwijderen' }}?')">
+      <form method="post" action="/settings/{{ cluster.id }}/delete/{{ kind }}" class="mt-2" onsubmit="return confirmSubmit(event, '{{ f.label }} {{ 'unlink' if f.info.source == 'file' else 'delete' }}?')">
         <input type="hidden" name="csrf" value="{{ csrf }}">
-        <button class="text-xs text-rose-400 hover:text-rose-300">{{ 'Ontkoppelen' if f.info.source == 'file' else 'Verwijderen' }}</button>
+        <button class="text-xs text-rose-400 hover:text-rose-300">{{ 'Unlink' if f.info.source == 'file' else 'Delete' }}</button>
       </form>
       {% endif %}
     </div>
@@ -119,15 +119,15 @@
 <section id="patches" class="mb-10">
   <h2 class="text-lg font-semibold text-white">Patches</h2>
   <p class="text-sm text-slate-400 mb-4">
-    Patches die bewust op het cluster zijn toegepast. Ze worden met <code>talosctl machineconfig patch</code>
-    op de baseline gezet, zodat alleen ongeplande afwijkingen als drift overblijven. Volgorde: alle nodes &rarr; rol &rarr; specifieke node,
-    en binnen een groep van boven naar beneden. Versleuteld opgeslagen.
+    Patches deliberately applied to the cluster. They are applied to the baseline with <code>talosctl machineconfig patch</code>,
+    so only unplanned differences remain as drift. Order: all nodes &rarr; role &rarr; specific node,
+    and within a group from top to bottom. Stored encrypted.
   </p>
   {% if patches %}
   <div class="card overflow-x-auto mb-4">
     <table class="w-full text-sm">
       <thead class="text-left text-xs uppercase text-slate-400 border-b border-slate-800">
-        <tr><th class="p-3 w-16"></th><th class="p-3">Bestand</th><th class="p-3">Geldt voor</th><th class="p-3">SHA-256</th><th class="p-3">Toegevoegd</th><th class="p-3"></th></tr>
+        <tr><th class="p-3 w-16"></th><th class="p-3">File</th><th class="p-3">Applies to</th><th class="p-3">SHA-256</th><th class="p-3">Added</th><th class="p-3"></th></tr>
       </thead>
       <tbody>
         {% for p in patches %}
@@ -142,28 +142,28 @@
           </td>
           <td class="p-3 font-mono text-xs text-white">
             {{ p.name }}
-            <div class="font-sans text-[11px] {{ 'text-rose-300' if p.error else 'text-slate-500' }}">{{ p.error or ('gekoppeld, live gelezen' if p.path else 'geüpload, versleuteld') }}</div>
+            <div class="font-sans text-[11px] {{ 'text-rose-300' if p.error else 'text-slate-500' }}">{{ p.error or ('linked, read live' if p.path else 'uploaded, encrypted') }}</div>
           </td>
           <td class="p-3">
             <form method="post" action="/settings/{{ cluster.id }}/patches/{{ p.id }}/target" class="flex gap-2 items-center"
                   x-data="{ t: '{{ 'node' if p.target.startswith('node:') else p.target }}' }">
               <input type="hidden" name="csrf" value="{{ csrf }}">
               <select name="target" x-model="t" @change="if (t !== 'node') $el.form.submit()" class="input py-1 text-xs w-auto">
-                <option value="all">Alle nodes</option>
-                <option value="controlplane">Controlplanes</option>
+                <option value="all">All nodes</option>
+                <option value="controlplane">Control planes</option>
                 <option value="worker">Workers</option>
-                <option value="node">Specifieke node</option>
+                <option value="node">Specific node</option>
               </select>
               <input x-show="t === 'node'" name="node_name" list="known-nodes" value="{{ p.target.removeprefix('node:') if p.target.startswith('node:') else '' }}"
-                     class="input py-1 text-xs w-40" placeholder="hostname of IP" @change="$el.form.submit()">
+                     class="input py-1 text-xs w-40" placeholder="hostname or IP" @change="$el.form.submit()">
             </form>
           </td>
           <td class="p-3 font-mono text-xs text-slate-400">{{ (p.fingerprint ~ '…') if p.fingerprint else '—' }}</td>
           <td class="p-3 text-xs text-slate-400"><time class="rel" datetime="{{ p.uploaded }}">{{ p.uploaded }}</time></td>
           <td class="p-3 text-right">
-            <form method="post" action="/settings/{{ cluster.id }}/patches/{{ p.id }}/delete" onsubmit="return confirmSubmit(event, '{{ p.name }} verwijderen?')">
+            <form method="post" action="/settings/{{ cluster.id }}/patches/{{ p.id }}/delete" onsubmit="return confirmSubmit(event, 'Delete {{ p.name }}?')">
               <input type="hidden" name="csrf" value="{{ csrf }}">
-              <button class="text-xs text-rose-400 hover:text-rose-300">Verwijderen</button>
+              <button class="text-xs text-rose-400 hover:text-rose-300">Delete</button>
             </form>
           </td>
         </tr>
@@ -175,20 +175,20 @@
   <div class="card p-5" x-data="{ mode: '{{ 'file' if config_dir else 'upload' }}', q: '' }">
     {% if config_dir %}
     <div class="flex gap-1 text-xs mb-4">
-      <button type="button" @click="mode='file'" :class="mode=='file' ? 'bg-slate-700 text-white' : 'text-slate-400'" class="px-2.5 py-1 rounded-md">Uit map</button>
-      <button type="button" @click="mode='upload'" :class="mode=='upload' ? 'bg-slate-700 text-white' : 'text-slate-400'" class="px-2.5 py-1 rounded-md">Uploaden</button>
+      <button type="button" @click="mode='file'" :class="mode=='file' ? 'bg-slate-700 text-white' : 'text-slate-400'" class="px-2.5 py-1 rounded-md">From folder</button>
+      <button type="button" @click="mode='upload'" :class="mode=='upload' ? 'bg-slate-700 text-white' : 'text-slate-400'" class="px-2.5 py-1 rounded-md">Upload</button>
     </div>
     <form x-show="mode=='file'" method="post" action="/settings/{{ cluster.id }}/patches/link" class="space-y-4">
       <input type="hidden" name="csrf" value="{{ csrf }}">
       <div>
-        <input x-model="q" class="input text-xs mb-2" placeholder="Filter, bijv. patch/">
+        <input x-model="q" class="input text-xs mb-2" placeholder="Filter, e.g. patch/">
         <div class="max-h-64 overflow-y-auto rounded-lg border border-slate-800 divide-y divide-slate-800/60">
           {% for hf in patch_candidates %}
           <label class="flex items-center gap-3 px-3 py-1.5 text-xs font-mono hover:bg-slate-800/50 cursor-pointer" x-show="!q || {{ hf | tojson | forceescape }}.toLowerCase().includes(q.toLowerCase())">
             <input type="checkbox" name="paths" value="{{ hf }}" class="accent-orange-500"> {{ hf }}
           </label>
           {% else %}
-          <div class="px-3 py-2 text-xs text-slate-500">{{ 'Geen (nieuwe) bestanden in de basismap.' if base_ok else 'Kies eerst een basismap.' }}</div>
+          <div class="px-3 py-2 text-xs text-slate-500">{{ 'No (new) files in the base folder.' if base_ok else 'Choose a base folder first.' }}</div>
           {% endfor %}
         </div>
       </div>
@@ -198,7 +198,7 @@
     <form x-show="mode=='upload'" method="post" action="/settings/{{ cluster.id }}/patches/upload" enctype="multipart/form-data" class="space-y-4">
       <input type="hidden" name="csrf" value="{{ csrf }}">
       <label class="block">
-        <span class="text-sm text-slate-300">Patchbestand(en)</span>
+        <span class="text-sm text-slate-300">Patch file(s)</span>
         <input type="file" name="files" multiple required class="file-input mt-2">
       </label>
       {% include "_patch_target.html" %}
@@ -212,31 +212,31 @@
   <form method="post" action="/settings/{{ cluster.id }}/general" class="card p-5 grid gap-5 md:grid-cols-2">
     <input type="hidden" name="csrf" value="{{ csrf }}">
     <label class="block">
-      <span class="text-sm text-slate-300">Ignore-paden</span>
+      <span class="text-sm text-slate-300">Ignore paths</span>
       <span class="block text-xs text-slate-500">
-        Eén per regel; een regel negeert ook alles eronder, dus houd ze zo specifiek mogelijk.
-        <code>[*]</code> = elke lijstindex of documentnaam, <code>*</code> = één segment, <code>**</code> = alles.
-        Andere documenten: <code>Kind</code> of <code>Kind[naam]</code>.<br>
-        Voorbeeld: <code>LinkConfig[*].addresses</code> negeert alleen de IP's, niet MTU of routes.
+        One per line; a rule also ignores everything below it, so keep them as specific as possible.
+        <code>[*]</code> = any list index or document name, <code>*</code> = one segment, <code>**</code> = anything.
+        Other documents: <code>Kind</code> or <code>Kind[name]</code>.<br>
+        Example: <code>LinkConfig[*].addresses</code> only ignores the IPs, not MTU or routes.
       </span>
       <textarea name="ignore" rows="10" class="input mt-2 font-mono text-xs">{{ settings.ignore | join('\n') }}</textarea>
     </label>
     <div class="space-y-5">
       <label class="block">
         <span class="text-sm text-slate-300">Discovery node</span>
-        <span class="block text-xs text-slate-500">Node waarop <code>talosctl get members</code> draait. Leeg = eerste node/endpoint uit de talosconfig.</span>
+        <span class="block text-xs text-slate-500">Node to run <code>talosctl get members</code> on. Empty = first node/endpoint from the talosconfig.</span>
         <input name="discovery_node" value="{{ settings.discovery_node }}" class="input mt-2 font-mono" placeholder="10.0.0.10">
       </label>
       <label class="block">
-        <span class="text-sm text-slate-300">Extra nodes (handmatig)</span>
-        <span class="block text-xs text-slate-500">Eén IP per regel, aanvulling op of vervanging van discovery.</span>
+        <span class="text-sm text-slate-300">Extra nodes (manual)</span>
+        <span class="block text-xs text-slate-500">One IP per line, in addition to or instead of discovery.</span>
         <textarea name="nodes" rows="4" class="input mt-2 font-mono text-xs">{{ settings.nodes | join('\n') }}</textarea>
       </label>
       <label class="block">
-        <span class="text-sm text-slate-300">Scaninterval (seconden)</span>
+        <span class="text-sm text-slate-300">Scan interval (seconds)</span>
         <input type="number" name="scan_interval" min="60" value="{{ settings.scan_interval }}" class="input mt-2 w-40">
       </label>
-      <button class="btn-primary">Opslaan</button>
+      <button class="btn-primary">Save</button>
     </div>
   </form>
 </section>

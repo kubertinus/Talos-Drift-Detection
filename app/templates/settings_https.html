@@ -1,34 +1,34 @@
 {% extends "settings_layout.html" %}
-{% block title %}HTTPS-certificaat · Talos Drift Detection{% endblock %}
+{% block title %}HTTPS certificate · Talos Drift Detection{% endblock %}
 {% block settings %}
-<h1 class="text-2xl font-semibold text-white mb-1">HTTPS-certificaat</h1>
-<p class="text-sm text-slate-400 mb-6">De app is alleen via HTTPS bereikbaar; HTTP stuurt door. Een nieuw certificaat is direct actief, zonder herstart.</p>
+<h1 class="text-2xl font-semibold text-white mb-1">HTTPS certificate</h1>
+<p class="text-sm text-slate-400 mb-6">The app is only reachable over HTTPS; HTTP redirects. A new certificate takes effect immediately, without a restart.</p>
 {% if msg %}<div class="alert-ok mb-6">{{ msg }}</div>{% endif %}
 {% if err %}<div class="alert-error mb-6 whitespace-pre-line">{{ err }}</div>{% endif %}
 
 {% if not tls_enabled %}
-<div class="alert-warn">TLS staat uit (<code>TLS_ENABLED=false</code>), bijvoorbeeld omdat een reverse proxy HTTPS afhandelt. Certificaten beheer je dan daar.</div>
+<div class="alert-warn">TLS is disabled (<code>TLS_ENABLED=false</code>), for example because a reverse proxy handles HTTPS. Manage certificates there.</div>
 {% else %}
 
 <section class="card p-5 mb-8">
   <div class="flex flex-wrap items-start justify-between gap-3">
     <div>
-      <div class="text-xs uppercase tracking-wide text-slate-400">Actief certificaat</div>
+      <div class="text-xs uppercase tracking-wide text-slate-400">Active certificate</div>
       <div class="mt-1 text-lg font-medium text-white">{{ cert.subject }}</div>
     </div>
     <div class="flex gap-2">
       {% if cert.source == 'selfsigned' %}<span class="badge badge-warn">self-signed</span>
       {% elif cert.source == 'letsencrypt' %}<span class="badge badge-ok">Let's Encrypt{{ ' (staging)' if cert.staging }}</span>
-      {% else %}<span class="badge badge-ok">eigen certificaat</span>{% endif %}
+      {% else %}<span class="badge badge-ok">own certificate</span>{% endif %}
       {% if days_left is not none %}
-        <span class="badge {{ 'badge-err' if days_left < 14 else 'badge-warn' if days_left < 30 else 'badge-muted' }}">nog {{ days_left }} dagen geldig</span>
+        <span class="badge {{ 'badge-err' if days_left < 14 else 'badge-warn' if days_left < 30 else 'badge-muted' }}">valid for {{ days_left }} more days</span>
       {% endif %}
     </div>
   </div>
   <dl class="mt-4 grid gap-x-6 gap-y-2 text-sm sm:grid-cols-[9rem_1fr]">
-    <dt class="text-slate-400">Namen</dt><dd class="font-mono text-xs text-slate-200 break-all">{{ cert.names | join(', ') }}</dd>
-    <dt class="text-slate-400">Keten</dt><dd class="text-slate-200">{{ cert.chain | join(' → ') }}{% if cert.source == 'upload' and cert.chain | length > 1 %} <span class="text-slate-500">(root wordt niet meegestuurd)</span>{% endif %}</dd>
-    <dt class="text-slate-400">Geldig</dt><dd class="text-slate-200">{{ cert.not_before[:10] }} t/m {{ cert.not_after[:10] }}</dd>
+    <dt class="text-slate-400">Names</dt><dd class="font-mono text-xs text-slate-200 break-all">{{ cert.names | join(', ') }}</dd>
+    <dt class="text-slate-400">Chain</dt><dd class="text-slate-200">{{ cert.chain | join(' → ') }}{% if cert.source == 'upload' and cert.chain | length > 1 %} <span class="text-slate-500">(root is not sent)</span>{% endif %}</dd>
+    <dt class="text-slate-400">Valid</dt><dd class="text-slate-200">{{ cert.not_before[:10] }} to {{ cert.not_after[:10] }}</dd>
     <dt class="text-slate-400">SHA-256</dt><dd class="font-mono text-xs text-slate-400 break-all">{{ cert.fingerprint }}…</dd>
   </dl>
 </section>
@@ -36,7 +36,7 @@
 <div x-data="{ tab: '{{ 'acme' if cert.source == 'letsencrypt' else 'upload' if cert.source == 'upload' else 'acme' }}' }">
   <div class="flex gap-1 text-sm mb-4">
     <button type="button" @click="tab='acme'" :class="tab=='acme' ? 'bg-slate-700 text-white' : 'text-slate-400'" class="px-3 py-1.5 rounded-md">Let's Encrypt</button>
-    <button type="button" @click="tab='upload'" :class="tab=='upload' ? 'bg-slate-700 text-white' : 'text-slate-400'" class="px-3 py-1.5 rounded-md">Eigen certificaat</button>
+    <button type="button" @click="tab='upload'" :class="tab=='upload' ? 'bg-slate-700 text-white' : 'text-slate-400'" class="px-3 py-1.5 rounded-md">Own certificate</button>
     <button type="button" @click="tab='self'" :class="tab=='self' ? 'bg-slate-700 text-white' : 'text-slate-400'" class="px-3 py-1.5 rounded-md">Self-signed</button>
   </div>
 
@@ -46,33 +46,33 @@
     <input type="hidden" name="csrf" value="{{ csrf }}">
     <div class="grid gap-5 md:grid-cols-2">
       <label class="block">
-        <span class="text-sm text-slate-300">Domeinnamen</span>
-        <span class="block text-xs text-slate-500">Eén per regel. Moet in publieke DNS bestaan; een wildcard (<code>*.example.com</code>) kan alleen via DNS.</span>
+        <span class="text-sm text-slate-300">Domain names</span>
+        <span class="block text-xs text-slate-500">One per line. Must exist in public DNS; a wildcard (<code>*.example.com</code>) requires DNS.</span>
         <textarea name="domains" rows="3" class="input mt-2 font-mono text-xs" placeholder="drift.example.com">{{ acme.domains | join('\n') }}</textarea>
       </label>
       <div class="space-y-5">
         <label class="block">
-          <span class="text-sm text-slate-300">E-mailadres</span>
-          <span class="block text-xs text-slate-500">Voor het Let's Encrypt-account.</span>
-          <input name="email" type="email" value="{{ acme.email }}" class="input mt-2" placeholder="beheer@example.com">
+          <span class="text-sm text-slate-300">Email address</span>
+          <span class="block text-xs text-slate-500">For the Let's Encrypt account.</span>
+          <input name="email" type="email" value="{{ acme.email }}" class="input mt-2" placeholder="admin@example.com">
         </label>
         <label class="flex items-center gap-2 text-sm text-slate-300">
           <input type="checkbox" name="staging" value="true" {% if acme.staging %}checked{% endif %} class="accent-orange-500">
-          Staging-omgeving (testcertificaat, niet vertrouwd; geen rate limits)
+          Staging environment (test certificate, not trusted; no rate limits)
         </label>
       </div>
     </div>
 
     <div>
-      <span class="text-sm text-slate-300">Validatie</span>
+      <span class="text-sm text-slate-300">Validation</span>
       <div class="mt-2 grid gap-3 md:grid-cols-2">
         <label class="card p-3 flex gap-3 cursor-pointer" :class="challenge=='http' && 'ring-1 ring-orange-500'">
           <input type="radio" name="challenge" value="http" x-model="challenge" class="accent-orange-500 mt-1">
-          <span class="text-sm"><span class="text-white">HTTP-01</span><br><span class="text-slate-400 text-xs">Let's Encrypt haalt een bestand op via <code>http://&lt;domein&gt;/.well-known/…</code>. Poort 80 van deze machine moet vanaf internet bereikbaar zijn en naar de HTTP-poort van de container wijzen.</span></span>
+          <span class="text-sm"><span class="text-white">HTTP-01</span><br><span class="text-slate-400 text-xs">Let's Encrypt fetches a file via <code>http://&lt;domain&gt;/.well-known/…</code>. Port 80 of this machine must be reachable from the internet and point to the container's HTTP port.</span></span>
         </label>
         <label class="card p-3 flex gap-3 cursor-pointer" :class="challenge=='dns' && 'ring-1 ring-orange-500'">
           <input type="radio" name="challenge" value="dns" x-model="challenge" class="accent-orange-500 mt-1">
-          <span class="text-sm"><span class="text-white">DNS-01</span><br><span class="text-slate-400 text-xs">Er wordt tijdelijk een TXT-record gezet via de API van je DNS-provider. Werkt ook voor interne servers en wildcards.</span></span>
+          <span class="text-sm"><span class="text-white">DNS-01</span><br><span class="text-slate-400 text-xs">A TXT record is set temporarily via your DNS provider's API. Also works for internal servers and wildcards.</span></span>
         </label>
       </div>
     </div>
@@ -80,42 +80,42 @@
     <div x-show="challenge=='dns'" x-cloak class="grid gap-5 md:grid-cols-2">
       <div class="space-y-5">
         <label class="block">
-          <span class="text-sm text-slate-300">DNS-provider</span>
-          <span class="block text-xs text-slate-500">lego-code, bijv. <code>cloudflare</code>, <code>transip</code>, <code>route53</code>, <code>hetzner</code>.</span>
+          <span class="text-sm text-slate-300">DNS provider</span>
+          <span class="block text-xs text-slate-500">lego code, e.g. <code>cloudflare</code>, <code>transip</code>, <code>route53</code>, <code>hetzner</code>.</span>
           <input name="dns_provider" x-model="provider" @change="help()" list="dns-providers" class="input mt-2 font-mono" placeholder="cloudflare">
           <datalist id="dns-providers">{% for p in ['cloudflare','transip','route53','hetzner','digitalocean','ovh','gandiv5','azuredns','gcloud','namecheap','porkbun','desec','duckdns','pdns','rfc2136','versio','mijnhost','hostingnl','openprovider','powerdns','httpreq'] %}<option value="{{ p }}">{% endfor %}</datalist>
         </label>
         <label class="block">
-          <span class="text-sm text-slate-300">Variabelen</span>
-          <span class="block text-xs text-slate-500"><code>NAAM=waarde</code>, één per regel. Gebruik <code>{file}</code> voor het pad naar het bestand hieronder.</span>
+          <span class="text-sm text-slate-300">Variables</span>
+          <span class="block text-xs text-slate-500"><code>NAME=value</code>, one per line. Use <code>{file}</code> for the path to the file below.</span>
           <textarea name="dns_env" rows="4" class="input mt-2 font-mono text-xs" placeholder="CF_DNS_API_TOKEN=...">{{ acme.dns_env }}</textarea>
         </label>
         <label class="block">
-          <span class="text-sm text-slate-300">Bestand (optioneel)</span>
-          <span class="block text-xs text-slate-500">Bijv. een private key voor TransIP. {% if acme.dns_file %}Er is al een bestand opgeslagen; laat leeg om dat te houden.{% endif %}</span>
+          <span class="text-sm text-slate-300">File (optional)</span>
+          <span class="block text-xs text-slate-500">E.g. a private key for TransIP. {% if acme.dns_file %}A file is already stored; leave empty to keep it.{% endif %}</span>
           <textarea name="dns_file" rows="3" class="input mt-2 font-mono text-xs" placeholder="-----BEGIN PRIVATE KEY-----"></textarea>
         </label>
       </div>
       <div>
-        <span class="text-sm text-slate-300">Benodigde variabelen</span>
-        <pre class="mt-2 card p-3 text-xs text-slate-300 whitespace-pre-wrap max-h-80 overflow-auto" x-text="helpText || 'Kies een provider om de variabelen te zien.'"></pre>
+        <span class="text-sm text-slate-300">Required variables</span>
+        <pre class="mt-2 card p-3 text-xs text-slate-300 whitespace-pre-wrap max-h-80 overflow-auto" x-text="helpText || 'Choose a provider to see the variables.'"></pre>
       </div>
     </div>
 
     <div class="flex flex-wrap items-center gap-3">
       <button name="action" value="request" class="btn-primary" :disabled="running">
         <svg x-show="running" class="w-4 h-4 animate-spin" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="3" opacity=".25"/><path d="M22 12a10 10 0 0 0-10-10" stroke="currentColor" stroke-width="3"/></svg>
-        <span x-text="running ? 'Bezig…' : 'Certificaat aanvragen'"></span>
+        <span x-text="running ? 'Working…' : 'Request certificate'"></span>
       </button>
-      <button name="action" value="force" class="btn-secondary" :disabled="running">Geforceerd vernieuwen</button>
-      <button name="action" value="save" class="text-sm text-slate-400 hover:text-white">Alleen opslaan</button>
-      <span class="text-xs text-slate-500">Vernieuwen gaat automatisch zolang Let's Encrypt de actieve bron is.</span>
+      <button name="action" value="force" class="btn-secondary" :disabled="running">Force renewal</button>
+      <button name="action" value="save" class="text-sm text-slate-400 hover:text-white">Save only</button>
+      <span class="text-xs text-slate-500">Renewal is automatic as long as Let's Encrypt is the active source.</span>
     </div>
 
     {% if acme_status.last_run %}
     <div class="text-sm">
       <div class="{{ 'text-emerald-300' if acme_status.ok else 'text-rose-300' }}">
-        Laatste aanvraag <time class="rel" datetime="{{ acme_status.last_run }}">{{ acme_status.last_run }}</time>: {{ 'gelukt' if acme_status.ok else 'mislukt' }}
+        Last request <time class="rel" datetime="{{ acme_status.last_run }}">{{ acme_status.last_run }}</time>: {{ 'succeeded' if acme_status.ok else 'failed' }}
       </div>
       <details class="mt-1"><summary class="text-xs text-slate-400 cursor-pointer">Log</summary>
         <pre class="mt-2 card p-3 text-xs text-slate-300 whitespace-pre-wrap max-h-64 overflow-auto">{{ acme_status.message }}</pre>
@@ -127,9 +127,9 @@
   {# --- own certificate --- #}
   <form x-show="tab=='upload'" x-cloak method="post" action="/settings/https/upload" enctype="multipart/form-data" class="card p-5 space-y-5">
     <input type="hidden" name="csrf" value="{{ csrf }}">
-    <p class="text-sm text-slate-400">Upload een bestand of plak de PEM-tekst. De keten mag in één bestand staan (intermediates en root, in willekeurige volgorde); de app zet ze op volgorde en controleert de handtekeningen. De private key wordt versleuteld opgeslagen.</p>
+    <p class="text-sm text-slate-400">Upload a file or paste the PEM text. The chain may be in one file (intermediates and root, in any order); the app orders them and checks the signatures. The private key is stored encrypted.</p>
     <div class="grid gap-5 md:grid-cols-3">
-      {% for field, label, hint in [('cert', 'Certificaat', 'Het servercertificaat (mag ook de hele keten bevatten).'), ('key', 'Private key', 'PEM, RSA of EC.'), ('chain', 'Intermediates en root', 'Optioneel als ze al in het certificaat staan.')] %}
+      {% for field, label, hint in [('cert', 'Certificate', 'The server certificate (may also contain the whole chain).'), ('key', 'Private key', 'PEM, RSA or EC.'), ('chain', 'Intermediates and root', 'Optional if they are already in the certificate.')] %}
       <div class="space-y-2">
         <span class="text-sm text-slate-300">{{ label }}</span>
         <span class="block text-xs text-slate-500">{{ hint }}</span>
@@ -139,21 +139,21 @@
       {% endfor %}
     </div>
     <label class="block max-w-sm">
-      <span class="text-sm text-slate-300">Wachtwoordzin van de key (optioneel)</span>
+      <span class="text-sm text-slate-300">Key passphrase (optional)</span>
       <input type="password" name="passphrase" autocomplete="off" class="input mt-2">
     </label>
-    <button class="btn-primary">Certificaat installeren</button>
+    <button class="btn-primary">Install certificate</button>
   </form>
 
   {# --- self-signed --- #}
   <form x-show="tab=='self'" x-cloak method="post" action="/settings/https/selfsigned" class="card p-5 space-y-4">
     <input type="hidden" name="csrf" value="{{ csrf }}">
-    <p class="text-sm text-slate-400">Maak een nieuw self-signed certificaat, bijvoorbeeld met de hostnaam of het IP-adres waarmee je de app opent. Browsers tonen een waarschuwing totdat je het certificaat vertrouwt.</p>
+    <p class="text-sm text-slate-400">Create a new self-signed certificate, for example with the hostname or IP address you use to open the app. Browsers show a warning until you trust the certificate.</p>
     <label class="block max-w-md">
-      <span class="text-sm text-slate-300">Hostnamen en IP-adressen</span>
+      <span class="text-sm text-slate-300">Hostnames and IP addresses</span>
       <textarea name="names" rows="4" class="input mt-2 font-mono text-xs">{{ ((cert.names if cert.source == 'selfsigned' else default_names)) | join('\n') }}</textarea>
     </label>
-    <button class="btn-secondary">Self-signed certificaat maken</button>
+    <button class="btn-secondary">Create self-signed certificate</button>
   </form>
 </div>
 {% endif %}
