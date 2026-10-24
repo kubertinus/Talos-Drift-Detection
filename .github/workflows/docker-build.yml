@@ -2,17 +2,29 @@ name: Docker build & push
 
 on:
   workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Existing git tag to build, e.g. v1.0.5 (empty = build main as edge)'
+        required: false
+        default: ''
   push:
     tags: ['v*']
 
 permissions:
   contents: read
 
+env:
+  # The release being built: the pushed tag, or the tag given for a manual run.
+  VERSION: ${{ inputs.tag || (github.ref_type == 'tag' && github.ref_name) || '' }}
+
 jobs:
   docker:
     runs-on: ubuntu-latest
     steps:
+      # A manual run with a tag builds that tag's code, using this (newer) workflow.
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.VERSION || github.ref }}
 
       # No QEMU needed: every RUN step in the Dockerfile runs on the build platform.
       - uses: docker/setup-buildx-action@v3
@@ -26,15 +38,16 @@ jobs:
         uses: docker/metadata-action@v5
         with:
           images: ${{ secrets.DOCKERHUB_USERNAME }}/talos-drift-detector
-          # Git tag v1.2.3 -> 1.2.3, 1.2, 1 and latest (newest release only).
+          # Tag v1.2.3 -> 1.2.3, 1.2, 1 and latest.
           # Manual run on main without a tag -> edge.
           tags: |
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-            type=semver,pattern={{major}}
-            type=raw,value=edge,enable={{is_default_branch}}
+            type=semver,pattern={{version}},value=${{ env.VERSION }},enable=${{ env.VERSION != '' }}
+            type=semver,pattern={{major}}.{{minor}},value=${{ env.VERSION }},enable=${{ env.VERSION != '' }}
+            type=semver,pattern={{major}},value=${{ env.VERSION }},enable=${{ env.VERSION != '' }}
+            type=raw,value=latest,enable=${{ env.VERSION != '' }}
+            type=raw,value=edge,enable=${{ env.VERSION == '' && github.ref == 'refs/heads/main' }}
           flavor: |
-            latest=auto
+            latest=false
 
       - uses: docker/build-push-action@v6
         with:
