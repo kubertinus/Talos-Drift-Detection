@@ -231,17 +231,18 @@ async def build_baseline(cid: str, role: str, patch_list: list[dict]) -> str:
             raise talos.TalosError(f"Patches ({names}) cannot be applied: {e}") from e
 
 
-async def try_apply(cid: str, data: bytes, target: str, node_role: str | None = None) -> str | None:
+async def try_apply(cid: str, data: bytes, target: str, node_roles: set[str] | None = None) -> str | None:
     """Dry-run a new patch on the baseline(s) it targets; returns an error message or None.
 
-    A patch for all nodes must fit every uploaded baseline; one for a single
-    node only has to fit that node's role (or any role, if it's not known yet).
+    A patch for all nodes must fit every uploaded baseline; one for selected nodes only has to
+    fit their roles (or any role, if they are not known yet).
     """
     v = vault.get()
+    node_target = bool(target_nodes(target))
     if target in ROLES:
         roles = [target]
-    elif target.startswith("node:") and node_role in ROLES:
-        roles = [node_role]
+    elif node_target and node_roles and set(node_roles) <= set(ROLES):
+        roles = sorted(node_roles)
     else:
         roles = list(ROLES)
     roles = [r for r in roles if sources.exists(cid, r)]
@@ -257,7 +258,7 @@ async def try_apply(cid: str, data: bytes, target: str, node_role: str | None = 
                 errors[role] = str(e).split(": ", 1)[-1]
     finally:
         v.delete(tmp)
-    if not errors or (target.startswith("node:") and len(errors) < len(roles)):
+    if not errors or (node_target and not node_roles and len(errors) < len(roles)):
         return None
     role, msg = next(iter(errors.items()))
     return f"Patch does not apply to {role}.yaml: {msg}"

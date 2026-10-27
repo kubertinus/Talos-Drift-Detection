@@ -450,7 +450,7 @@ the linked folder (or uploaded) under **Settings → Patches**, each with a targ
 |---|---|
 | All nodes | every node |
 | Control planes / Workers | all nodes of that role |
-| Specific node | one node, by hostname or IP |
+| Selected nodes | the ticked nodes from the latest scan, plus typed hostnames/IPs of nodes not scanned yet |
 
 The patches are applied to the baseline with `talosctl machineconfig patch`, exactly as Talos does
 it itself. Order: first "all nodes", then the role, then node-specific; within a group from top to

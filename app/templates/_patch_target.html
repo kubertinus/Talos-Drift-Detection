@@ -1,16 +1,39 @@
-<div class="flex flex-wrap items-end gap-4" x-data="{ target: 'all' }">
-  <label class="block">
-    <span class="text-sm text-slate-300">Applies to</span>
-    <select name="target" x-model="target" class="input mt-2 w-auto">
-      <option value="all">All nodes</option>
-      <option value="controlplane">Control planes</option>
-      <option value="worker">Workers</option>
-      <option value="node">Specific node</option>
-    </select>
-  </label>
-  <label class="block" x-show="target === 'node'">
-    <span class="text-sm text-slate-300">Node</span>
-    <input name="node_name" list="known-nodes" class="input mt-2 w-48" placeholder="hostname or IP">
-  </label>
-  <button class="btn-secondary">Add</button>
+{# Target picker for Settings → Patches: all nodes, a role, or a selection of nodes (ticked from the
+   latest scan, plus typed names for nodes that are not scanned yet). Only changes the baseline. #}
+{% macro target_picker(known_nodes, current='all', button='Add') %}
+{% set selected = current.split(':', 1)[1].split(',') if current.startswith('node') else [] %}
+{% set known_names = (known_nodes | map(attribute='hostname') | list) + (known_nodes | map(attribute='address') | list) %}
+<div class="space-y-3" x-data="{ target: '{{ 'node' if current.startswith('node') else current }}' }">
+  <div class="flex flex-wrap items-end gap-4">
+    <label class="block">
+      <span class="text-sm text-slate-300">Applies to</span>
+      <select name="target" x-model="target" class="input mt-2 w-auto">
+        <option value="all">All nodes</option>
+        <option value="controlplane">Control planes</option>
+        <option value="worker">Workers</option>
+        <option value="node">Selected nodes</option>
+      </select>
+    </label>
+    <button class="btn-secondary">{{ button }}</button>
+  </div>
+  <div x-show="target === 'node'" class="space-y-2">
+    {% if known_nodes %}
+    <div class="max-h-56 overflow-y-auto rounded-lg border border-slate-800 divide-y divide-slate-800/60">
+      {% for n in known_nodes %}
+      <label class="flex items-center gap-3 px-3 py-1.5 text-xs hover:bg-slate-800/50 cursor-pointer">
+        <input type="checkbox" name="node_names" value="{{ n.hostname }}" class="accent-orange-500"
+               {% if n.hostname in selected or n.address in selected %}checked{% endif %}>
+        <span class="text-white">{{ n.hostname }}</span>
+        <span class="font-mono text-slate-500">{{ n.address }}</span>
+        <span class="ml-auto text-slate-400">{{ n.role }}</span>
+      </label>
+      {% endfor %}
+    </div>
+    {% endif %}
+    <label class="block">
+      <span class="text-xs text-slate-400">Other nodes, not scanned yet (comma separated hostnames or IPs)</span>
+      <input name="node_name" value="{{ selected | reject('in', known_names) | join(', ') }}" class="input mt-1 text-xs font-mono" placeholder="node-4, 10.0.0.24">
+    </label>
+  </div>
 </div>
+{% endmacro %}

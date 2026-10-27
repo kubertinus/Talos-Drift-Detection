@@ -132,3 +132,54 @@ def test_remove_from_baseline_can_delete_the_file(tmp_path, monkeypatch):
     client.post(f"/settings/{c['id']}/patches/{kept['id']}/delete", data={"csrf": csrf})
     assert patches.all_patches(c["id"]) == []
     assert not (base / "n4.yaml").exists() and (base / "keep.yaml").exists()
+
+
+def _login(client):
+    import re
+    client.post("/login", data={"password": config.ADMIN_PASSWORD})
+    return lambda page: re.search(r'name="csrf-token" content="([^"]+)"', client.get(page).text).group(1)
+
+
+def test_settings_target_with_ticked_and_typed_nodes(monkeypatch):
+    from fastapi.testclient import TestClient
+    from app import patches
+    monkeypatch.setattr(scanner, "request", lambda cid: None)  # no talosconfig here: a rescan would empty the node list
+    c = store.add_cluster("prod")
+    store.add_scan(c["id"], {"finished_at": "2026-01-01T00:00:00+00:00", "nodes": [
+        {"address": "10.0.0.1", "hostname": "cp-1", "role": "controlplane", "status": "in-sync"},
+        {"address": "10.0.1.1", "hostname": "w-1", "role": "worker", "status": "in-sync"},
+        {"address": "10.0.1.2", "hostname": "w-2", "role": "worker", "status": "in-sync"}]})
+    p = patches.add(c["id"], "odd.yaml", b"machine: {}\n", "all")
+    client = TestClient(main.app, base_url="https://testserver")
+    csrf = _login(client)(f"/settings/{c['id']}")
+    url = f"/settings/{c['id']}/patches/{p['id']}/target"
+    client.post(url, data={"csrf": csrf, "target": "node", "node_names": ["w-1", "w-2"], "node_name": "w-9"})
+    assert patches.get(c["id"], p["id"])["target"] == "nodes:w-1,w-2,w-9"
+    page = client.get(f"/settings/{c['id']}").text
+    import re
+    assert re.search(r'value="w-1"[^>]*checked', page) and not re.search(r'value="cp-1"[^>]*checked', page)
+    assert 'value="w-9"' in page  # the typed, not yet scanned node is kept in the text field
+    client.post(url, data={"csrf": csrf, "target": "node", "node_names": ["w-2"]})  # untick w-1, drop w-9
+    assert patches.get(c["id"], p["id"])["target"] == "node:w-2"
+    client.post(url, data={"csrf": csrf, "target": "node"})  # nothing selected: refused, unchanged
+    assert patches.get(c["id"], p["id"])["target"] == "node:w-2"
+
+
+def test_try_apply_uses_the_roles_of_the_selected_nodes(monkeypatch):
+    import asyncio
+    from app import patches, sources, talos
+    c = store.add_cluster("prod")
+    for role in patches.ROLES:
+        sources.save_upload(c["id"], role, f"version: v1alpha1\nmachine: {{type: {role}}}\n".encode())
+
+    async def build_baseline(cid, role, applied):  # the patch only fits control planes
+        if role == "worker":
+            raise talos.TalosError("Patches (new patch) cannot be applied: no such field")
+        return ""
+
+    monkeypatch.setattr(patches, "build_baseline", build_baseline)
+    run = lambda target, roles=None: asyncio.run(patches.try_apply(c["id"], b"x: 1\n", target, roles))  # noqa: E731
+    assert run("nodes:cp-1,cp-2", {"controlplane"}) is None
+    assert "worker.yaml" in run("nodes:cp-1,w-1", {"controlplane", "worker"})
+    assert run("nodes:new-1,new-2") is None  # roles unknown: fitting one role is enough
+    assert "worker.yaml" in run("all")

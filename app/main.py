@@ -639,7 +639,8 @@ async def settings_page(request: Request, cid: str, msg: str | None = None, err:
     cluster = cluster_or_404(cid)
     files = {kind: {"label": label, "info": sources.info(cid, kind)} for kind, label in UPLOAD_KINDS.items()}
     scan = store.latest(cid)
-    known = sorted({n["hostname"] for n in (scan or {}).get("nodes", [])})
+    known = sorted(({"hostname": n["hostname"], "address": n["address"], "role": n.get("role", "unknown")}
+                     for n in (scan or {}).get("nodes", [])), key=lambda n: (n["role"] != "controlplane", n["hostname"]))
     host_files = sources.list_files(cid)
     linked_patches = patches.linked_paths(cid)
     return render(
@@ -726,17 +727,22 @@ async def delete_file(request: Request, cid: str, kind: str, csrf: str = Form(..
     return _back(cid, msg=f"{UPLOAD_KINDS[kind]} removed")
 
 
-def _target(target: str, node_name: str) -> str:
-    return patches.nodes_target(node_name.split(",")) if target == "node" else target
+def _target(target: str, node_name: str, node_names: list[str] | None = None) -> str:
+    """Target from the form: a role/all, or the ticked nodes plus any typed (not yet scanned) ones."""
+    if target != "node":
+        return target
+    return patches.nodes_target([*(node_names or []), *node_name.split(",")])
 
 
-def _node_role(cid: str, target: str) -> str | None:
-    """Role of the node a patch targets, from the latest scan."""
-    if not target.startswith("node:"):
+def _node_roles(cid: str, target: str) -> set[str] | None:
+    """Roles of the nodes a patch targets, from the latest scan; None if any of them is unknown."""
+    wanted = set(patches.target_nodes(target))
+    if not wanted:
         return None
-    wanted = target.removeprefix("node:")
-    scan = store.latest(cid)
-    return next((n.get("role") for n in (scan or {}).get("nodes", []) if wanted in (n["hostname"], n["address"])), None)
+    nodes = (store.latest(cid) or {}).get("nodes", [])
+    found = [n for n in nodes if {n["hostname"], n["address"]} & wanted]
+    covered = {n["hostname"] for n in found} | {n["address"] for n in found}
+    return {n.get("role") for n in found} if wanted <= covered else None
 
 
 @app.post("/settings/{cid}/patches/upload", dependencies=[Depends(auth.require_operator)])
@@ -746,21 +752,22 @@ async def upload_patches(
     files: list[UploadFile] = File(...),
     target: str = Form("all"),
     node_name: str = Form(""),
+    node_names: list[str] = Form([]),
     csrf: str = Form(...),
 ):
     auth.check_csrf(request, csrf)
     cluster_or_404(cid)
-    target = _target(target, node_name)
+    target = _target(target, node_name, node_names)
     if not patches.valid_target(target):
         return _back(cid, "#patches", err="Choose a valid target (for a specific node: enter the hostname or IP).")
-    node_role = _node_role(cid, target)
+    node_roles = _node_roles(cid, target)
     added = []
     for f in files:
         data = await f.read(MAX_UPLOAD + 1)
         name = Path(f.filename or "patch.yaml").name
         if len(data) > MAX_UPLOAD:
             return _back(cid, "#patches", err=f"{name}: file too large (max 1 MB)")
-        error = patches.check_yaml(data) or await patches.try_apply(cid, data, target, node_role)
+        error = patches.check_yaml(data) or await patches.try_apply(cid, data, target, node_roles)
         if error:
             return _back(cid, "#patches", err=f"{name}: {error}")
         patches.add(cid, name, data, target)
@@ -777,22 +784,23 @@ async def link_patches(
     paths: list[str] = Form([]),
     target: str = Form("all"),
     node_name: str = Form(""),
+    node_names: list[str] = Form([]),
     csrf: str = Form(...),
 ):
     auth.check_csrf(request, csrf)
     cluster_or_404(cid)
-    target = _target(target, node_name)
+    target = _target(target, node_name, node_names)
     if not paths:
         return _back(cid, "#patches", err="Select at least one file.")
     if not patches.valid_target(target):
         return _back(cid, "#patches", err="Choose a valid target (for a specific node: enter the hostname or IP).")
-    node_role = _node_role(cid, target)
+    node_roles = _node_roles(cid, target)
     for rel in paths:
         try:
             data = sources.read(cid, rel)
         except sources.SourceError as e:
             return _back(cid, "#patches", err=str(e))
-        error = patches.check_yaml(data) or await patches.try_apply(cid, data, target, node_role)
+        error = patches.check_yaml(data) or await patches.try_apply(cid, data, target, node_roles)
         if error:
             return _back(cid, "#patches", err=f"{rel}: {error}")
     for rel in paths:
@@ -811,6 +819,7 @@ async def patch_action(
     csrf: str = Form(...),
     target: str = Form(""),
     node_name: str = Form(""),
+    node_names: list[str] = Form([]),
     delete_file: bool = Form(False),
 ):
     auth.check_csrf(request, csrf)
@@ -836,7 +845,7 @@ async def patch_action(
         patches.move(cid, patch_id, -1 if action == "up" else 1)
         _record(request, "patch.move", cid, patch=p["name"], direction=action)
     elif action == "target":
-        target = _target(target, node_name)
+        target = _target(target, node_name, node_names)
         if not patches.valid_target(target):
             return _back(cid, "#patches", err="Invalid target")
         patches.set_target(cid, patch_id, target)

@@ -1,4 +1,5 @@
 {% extends "settings_layout.html" %}
+{% from "_patch_target.html" import target_picker %}
 {% block title %}Settings {{ cluster.name }} · Talos Config Manager{% endblock %}
 {% block settings %}
 <div class="flex flex-wrap items-center justify-between gap-4 mb-6">
@@ -147,18 +148,13 @@
             <div class="font-sans text-[11px] {{ 'text-rose-300' if p.error else 'text-slate-500' }}">{{ p.error or ('linked, read live' if p.path else 'uploaded, encrypted') }}</div>
           </td>
           <td class="p-3">
-            <form method="post" action="/settings/{{ cluster.id }}/patches/{{ p.id }}/target" class="flex gap-2 items-center"
-                  x-data="{ t: '{{ 'node' if p.target.startswith('node') else p.target }}' }">
-              <input type="hidden" name="csrf" value="{{ csrf }}">
-              <select name="target" x-model="t" @change="if (t !== 'node') $el.form.submit()" class="input py-1 text-xs w-auto">
-                <option value="all">All nodes</option>
-                <option value="controlplane">Control planes</option>
-                <option value="worker">Workers</option>
-                <option value="node">Specific node</option>
-              </select>
-              <input x-show="t === 'node'" name="node_name" list="known-nodes" value="{{ p.target.split(':', 1)[1] if p.target.startswith('node') else '' }}"
-                     class="input py-1 text-xs w-40" placeholder="hostname or IP" @change="$el.form.submit()">
-            </form>
+            <details class="text-xs">
+              <summary class="cursor-pointer text-slate-200">{{ p.label }} <span class="text-slate-500 ml-1">change</span></summary>
+              <form method="post" action="/settings/{{ cluster.id }}/patches/{{ p.id }}/target" class="mt-2 p-3 rounded-lg bg-slate-900 border border-slate-800 min-w-[18rem]">
+                <input type="hidden" name="csrf" value="{{ csrf }}">
+                {{ target_picker(known_nodes, p.target, 'Save') }}
+              </form>
+            </details>
           </td>
           <td class="p-3 font-mono text-xs text-slate-400">{{ (p.fingerprint ~ '…') if p.fingerprint else '—' }}</td>
           <td class="p-3 text-xs text-slate-400"><time class="rel" datetime="{{ p.uploaded }}">{{ p.uploaded }}</time></td>
@@ -198,7 +194,7 @@
           {% endfor %}
         </div>
       </div>
-      {% include "_patch_target.html" %}
+      {{ target_picker(known_nodes) }}
     </form>
     {% endif %}
     <form x-show="mode=='upload'" method="post" action="/settings/{{ cluster.id }}/patches/upload" enctype="multipart/form-data" class="space-y-4">
@@ -207,10 +203,9 @@
         <span class="text-sm text-slate-300">Patch file(s)</span>
         <input type="file" name="files" multiple required class="file-input mt-2">
       </label>
-      {% include "_patch_target.html" %}
+      {{ target_picker(known_nodes) }}
     </form>
   </div>
-  <datalist id="known-nodes">{% for n in known_nodes %}<option value="{{ n }}">{% endfor %}</datalist>
 </section>
 
 <section>
