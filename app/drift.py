@@ -51,6 +51,20 @@ FREE_FORM_MAPS = {"labels", "annotations", "nodeLabels", "nodeAnnotations", "nod
                   "env", "sysctls", "kernelArgs", "extraEnv"}
 
 
+class _Name(str):
+    """Key of an item in a list that is compared by name (see _by_name); shows as `list[name]`."""
+
+
+def _by_name(items: list):
+    """A list whose items all have a unique `name` (e.g. machine.kernel.modules) as {name: item}, so
+    it is compared by name and its order does not count (patches append in the order they are
+    applied, which may differ per node). Other lists stay lists: there the position counts."""
+    names = [i.get("name") for i in items if isinstance(i, dict)]
+    if items and len(names) == len(items) and all(isinstance(n, str) and n for n in names) and len(set(names)) == len(names):
+        return {_Name(i["name"]): i for i in items}
+    return items
+
+
 def _drop_empty(node, free_form: bool = False):
     """Treat null, "" and empty maps/lists as absent: talosctl adds or strips them when re-serialising
     (Talos itself reads all of these as "not set"). Inside FREE_FORM_MAPS a "" value is kept."""
@@ -58,7 +72,7 @@ def _drop_empty(node, free_form: bool = False):
         out = {k: _drop_empty(v, k in FREE_FORM_MAPS) for k, v in node.items()}
         return {k: v for k, v in out.items() if v not in (None, {}, []) and not (v == "" and not free_form)}
     if isinstance(node, list):
-        return [_drop_empty(v) for v in node]
+        return _by_name([_drop_empty(v) for v in node])
     return node
 
 
@@ -73,7 +87,7 @@ def parse_config(text: str) -> dict[str, dict]:
 
 
 def _join(prefix: str, key) -> str:
-    if isinstance(key, int):
+    if isinstance(key, (int, _Name)):
         return f"{prefix}[{key}]"
     return f"{prefix}.{key}" if prefix else str(key)
 
@@ -231,8 +245,19 @@ def _compare(base, actual, path: str, out: list):
         out.append({"path": path, "type": "changed", "baseline": base, "actual": actual})
 
 
+def _plain(node):
+    """Back to plain YAML types: lists compared by name become lists again, sorted by name."""
+    if isinstance(node, dict):
+        if node and all(isinstance(k, _Name) for k in node):
+            return [_plain(node[k]) for k in sorted(node)]
+        return {str(k): _plain(v) for k, v in node.items()}
+    if isinstance(node, list):
+        return [_plain(v) for v in node]
+    return node
+
+
 def to_yaml(docs: dict[str, dict]) -> str:
-    return yaml.safe_dump_all([docs[k] for k in sorted(docs)], sort_keys=True, default_flow_style=False)
+    return yaml.safe_dump_all([_plain(docs[k]) for k in sorted(docs)], sort_keys=True, default_flow_style=False)
 
 
 def compute(baseline_text: str, actual_text: str, ignore: list[str]) -> dict:

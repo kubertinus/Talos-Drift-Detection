@@ -277,3 +277,40 @@ def test_keep_ignored_without_taking_values_for_a_new_node():
     doc = yaml.safe_load(drift.keep_ignored(desired, reference, rules, take=False))
     assert doc["machine"]["network"]["hostname"] == "new-node"  # its own value, not the reference node's
     assert doc["cluster"] == {"etcd": {"x": 1}}
+
+
+def _modules(*names, extra=""):
+    items = "".join(f"\n      - name: {n}" for n in names)
+    return f"version: v1alpha1\nmachine:\n  kernel:\n    modules:{items}{extra}\n"
+
+
+def test_named_lists_are_compared_by_name_not_position():
+    base = _modules("ip_vs", "ip_vs_rr", "nf_conntrack", "nvidia", "nvidia_uvm")
+    reordered = _modules("nvidia", "nvidia_uvm", "ip_vs", "ip_vs_rr", "nf_conntrack")
+    result = drift.compute(base, reordered, [])
+    assert result["changes"] == [] and result["diff"] == ""
+    assert drift.config_diff(base, reordered) == ""
+
+
+def test_named_lists_still_show_real_changes_by_name():
+    base = _modules("ip_vs", "nvidia")
+    actual = _modules("nvidia", "ip_vs_sh", extra="\n        parameters: [debug=1]")
+    changes = {(c["type"], c["path"]) for c in drift.compute(base, actual, [])["changes"]}
+    assert changes == {("removed", "machine.kernel.modules[ip_vs].name"),
+                       ("added", "machine.kernel.modules[ip_vs_sh].name"),
+                       ("added", "machine.kernel.modules[ip_vs_sh].parameters[0]")}
+    assert drift.is_ignored("machine.kernel.modules[ip_vs_sh].name", ["machine.kernel.modules[*]"])
+
+
+def test_lists_without_unique_names_keep_their_order():
+    base = "version: v1alpha1\nmachine:\n  network:\n    nameservers: [1.1.1.1, 8.8.8.8]\n"
+    swapped = base.replace("[1.1.1.1, 8.8.8.8]", "[8.8.8.8, 1.1.1.1]")
+    assert len(drift.compute(base, swapped, [])["changes"]) == 2  # order of nameservers matters
+    dup = _modules("a", "a")
+    assert isinstance(drift.parse_config(dup)[""]["machine"]["kernel"]["modules"], list)
+
+
+def test_peer_differences_ignore_the_order_of_named_lists():
+    nodes = [{"hostname": "w-1", "actual": _modules("ip_vs", "nvidia"), "baseline": None},
+             {"hostname": "w-2", "actual": _modules("nvidia", "ip_vs"), "baseline": None}]
+    assert drift.peer_differences(nodes, []) == []

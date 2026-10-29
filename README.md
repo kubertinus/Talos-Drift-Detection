@@ -437,6 +437,11 @@ Metrics: `talos_cm_nodes{cluster,role,status}`, `talos_cm_node_drift_paths{clust
 4. Both sides are masked, ignore paths are filtered out, and then a recursive comparison follows
    (`added` / `removed` / `changed`). Empty values (`null`, `""`, `{}`, `[]`) count as absent.
 
+Lists whose items all have a unique `name` (e.g. `machine.kernel.modules`) are compared by name,
+not by position: patches append to lists in the order they are applied, which can differ per node.
+Such paths look like `machine.kernel.modules[nvidia].parameters[0]`. Other lists (nameservers,
+routes, ...) are compared by position, because there the order matters.
+
 Differences are reported per field, even when an entire document or block has been added. That
 way you can ignore exactly what may differ per node while the rest stays monitored.
 
